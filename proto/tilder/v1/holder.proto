@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+// Between the agent and a holder process, over a unix socket in the owner's
+// run directory (ADR 0005). Local only, and meant almost never to change: a
+// holder keeps running the code it was started with, so a newer agent must
+// speak every contract_version still alive.
+package tilder.v1;
+
+import "tilder/v1/pty.proto";
+
+option go_package = "github.com/nghyane/tilder/go/internal/wire/tilder/v1;tilderv1";
+
+// Agent → holder. A connection starts with Hello; then it may Attach (and
+// receive the replay and the stream) and send input, resizes and a kill.
+message HolderRequest {
+  oneof msg {
+    HolderHello hello = 1;
+    HolderAttach attach = 2;
+    PtyInput input = 3;
+    Resize resize = 4;
+    Kill kill = 5;
+  }
+}
+
+message HolderHello {
+  uint32 contract_version = 1;
+}
+
+message HolderAttach {
+  uint64 since = 1;
+}
+
+// Holder → agent.
+message HolderEvent {
+  oneof msg {
+    HolderWelcome welcome = 1;
+    HolderReplay replay = 2;
+    Output output = 3;
+    Exit exit = 4;
+  }
+}
+
+message HolderWelcome {
+  uint32 contract_version = 1;
+  string shell_id = 2;
+  int32 pid = 3;
+}
+
+// What the attach missed: data from offset `from`, `lost` bytes no longer kept.
+// From contract 2: `screen`, the screen as of the end of `data`, cols×rows
+// (ADR 0017); a contract 1 holder leaves them empty.
+message HolderReplay {
+  bytes data = 1;
+  uint64 from = 2;
+  uint64 lost = 3;
+  bool exited = 4;
+  int32 code = 5;
+  bytes screen = 6;
+  uint32 cols = 7;
+  uint32 rows = 8;
+}

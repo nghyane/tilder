@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+// One shell over the `pty` DataChannel (PROTOCOL §4). Offsets count wire
+// bytes, never characters.
+package tilder.v1;
+
+option go_package = "github.com/nghyane/tilder/go/internal/wire/tilder/v1;tilderv1";
+
+message PtyClient {
+  oneof msg {
+    Attach attach = 1;
+    PtyInput input = 2;
+    Resize resize = 3;
+    Ack ack = 4;
+    Kill kill = 5;
+    Claim claim = 6;
+  }
+}
+
+message PtyServer {
+  oneof msg {
+    Output output = 1;
+    Exit exit = 2;
+    Screen screen = 3;
+    PtyRefused refused = 4;
+    PtyCwd cwd = 5;
+    // The shell's size now (ADR 0033): after the attach, and whenever the
+    // device that decides it changes. It may not be the size this client
+    // asked for; the client draws at this size and does not send it back.
+    Resize size = 6;
+  }
+}
+
+message Attach {
+  string shell_id = 1;
+  uint64 since = 2;
+  uint32 cols = 3;
+  uint32 rows = 4;
+  // Unacknowledged bytes the client accepts; the agent clamps it to [16 KiB, 1 MiB].
+  uint32 window = 5;
+  // Where a new shell starts: a path under the home, as the fs channel takes
+  // it (ADR 0024). Empty is the home. Ignored when the shell already runs.
+  bytes dir = 6;
+}
+
+message PtyInput {
+  bytes data = 1;
+}
+
+message Resize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+message Ack {
+  uint64 seq = 1;
+}
+
+// Ends the shell and everything in its session (ADR 0014): the tab was closed.
+message Kill {}
+
+// Takes the shell's size for this client without typing (ADR 0033): as a
+// keystroke would, but nothing reaches the shell.
+message Claim {}
+
+message Output {
+  uint64 seq = 1;
+  bytes data = 2;
+  // Catch-up from the ring at attach, not live output (ADR 0015). The
+  // console writes it without answering the terminal queries inside: the
+  // program that asked stopped waiting long ago.
+  bool replay = 3;
+}
+
+// The screen as the shell drew it (ADR 0017), sent at an attach from 0
+// instead of the history, which was drawn at other sizes and may have
+// scrolled out of the ring. A long screen comes in parts, in order: the first
+// has cols and rows (reset the terminal to that size, then write), the last
+// has `last` (fit the terminal to its pane again; the program redraws). The
+// data counts no offsets: output goes on from `seq`.
+message Screen {
+  bytes data = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+  uint64 seq = 4;
+  bool last = 5;
+}
+
+message Exit {
+  int32 code = 1;
+}
+
+// The attach was refused, and why; the channel closes after it (ADR 0024).
+message PtyRefused {
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    CODE_NOT_FOUND = 1;
+    CODE_NOT_DIR = 2;
+    CODE_DENIED = 3;
+    CODE_INVALID = 4;
+  }
+  Code code = 1;
+}
+
+// The folder the shell is in now (ADR 0024): its process's working
+// directory, looked up after output, at most every 2 s, sent when it
+// changes. `dir` is relative to the home, as the fs channel takes it; a
+// folder outside the home comes absolute with `outside_home`, to be shown,
+// never to start a shell in.
+message PtyCwd {
+  bytes dir = 1;
+  bool outside_home = 2;
+}

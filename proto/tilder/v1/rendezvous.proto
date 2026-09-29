@@ -1,0 +1,450 @@
+syntax = "proto3";
+
+// The rendezvous wire (PROTOCOL §3): one Envelope per WebSocket message.
+// Authority never comes from these messages alone: every claim that matters
+// travels as a signed statement (internal/identity), verified by the side
+// that relies on it.
+package tilder.v1;
+
+import "tilder/v1/hello.proto";
+
+option go_package = "github.com/nghyane/tilder/go/internal/wire/tilder/v1;tilderv1";
+
+message Envelope {
+  oneof msg {
+    Challenge challenge = 1;
+    DeviceHello device_hello = 2;
+    AgentHello agent_hello = 3;
+    Welcome welcome = 4;
+    Refused refused = 5;
+    JoinOpen join_open = 6;
+    JoinOpened join_opened = 7;
+    MachinesRequest machines_request = 8;
+    Machines machines = 9;
+    Signal signal = 10;
+    SignalDeliver signal_deliver = 11;
+    SignalReply signal_reply = 12;
+    SignalAnswer signal_answer = 13;
+    Undeliverable undeliverable = 14;
+    Registration register_machine = 15;
+    DevicesRequest devices_request = 16;
+    Devices devices = 17;
+    RevocationList revocations = 18;
+    MailboxAllocate mailbox_allocate = 19;
+    MailboxAllocated mailbox_allocated = 20;
+    MailboxOpen mailbox_open = 21;
+    MailboxOpened mailbox_opened = 22;
+    MailboxPost mailbox_post = 23;
+    MailboxClosed mailbox_closed = 24;
+    RootWrapsPut root_wraps_put = 25;
+    RootWrapsAck root_wraps_ack = 26;
+    WrapLookup wrap_lookup = 27;
+    WrapFound wrap_found = 28;
+    UpdateNow update_now = 29;
+    UpdateResult update_result = 30;
+    TurnRequest turn_request = 31;
+    TurnServers turn_servers = 32;
+    DirectoryGet directory_get = 33;
+    Directory directory = 34;
+    DirectoryPut directory_put = 35;
+    DirectoryAck directory_ack = 36;
+    DirectoryConflict directory_conflict = 37;
+    MachineSignal machine_signal = 38;
+  }
+}
+
+// server → client, first frame: sign this nonce to prove your key.
+message Challenge {
+  bytes nonce = 1;
+}
+
+// A browser proves its device key, and the root's certificate for it (ADR
+// 0004). The user is the certificate's root.
+message DeviceHello {
+  // P1's unused bytes certificate: never reused, in number or name.
+  reserved 4;
+  reserved "certificate";
+  Hello hello = 1;
+  bytes public_key = 2;
+  bytes signature = 3;
+  DeviceCertificate device_certificate = 5;
+  // What the owner will recognise it by ("Chrome on macOS"); its hash is in
+  // the certificate, so the server cannot rename it unnoticed.
+  string name = 6;
+}
+
+// A device-cert: the exact statement text the root signed, and the signature.
+message DeviceCertificate {
+  string statement = 1;
+  bytes signature = 2;
+}
+
+// A device's grant for one copy between machines (ADR 0035): the exact
+// transfer statement it signed, the signature, and the device's certificate,
+// which each machine checks against the root it pinned.
+message TransferGrant {
+  string statement = 1;
+  bytes signature = 2;
+  DeviceCertificate device_certificate = 3;
+}
+
+// An agent proves its machine key. `join_secret` is present only on the first
+// connection after `tilder join`: it registers the machine to the user
+// who opened that join.
+message AgentHello {
+  Hello hello = 1;
+  bytes machine_public_key = 2;
+  bytes signature = 3;
+  bytes join_secret = 4;
+  // What the machine calls itself; shown until the owner renames it.
+  string hostname = 5;
+  // What the machine runs (ADR 0019). Not covered by the signature: shown to
+  // the owner, never used to decide anything.
+  HostInfo host = 6;
+  // HMAC of the machine key under the join secret's half the server never
+  // sees (identity.JoinProof): the console checks it before its root
+  // vouches for the key (ADR 0004).
+  bytes join_proof = 7;
+}
+
+// Gathered once when the agent starts (Tailscale's hostinfo). No internal
+// addresses, user names or processes. The server clamps every field.
+message HostInfo {
+  string os = 1; // "linux", "darwin"
+  string os_version = 2; // macOS "15.6.1"; Linux: the kernel release
+  string distro = 3; // /etc/os-release ID: "ubuntu", "debian", "alpine"
+  string distro_version = 4;
+  string arch = 5; // "arm64", "amd64"
+  string agent_version = 6;
+  string container = 7; // "docker", "lxc", "" when on the host
+  int64 boot_time = 8; // Unix seconds; the console works out the uptime
+}
+
+message Welcome {
+  string user_id = 1;
+  string machine_id = 2; // set for agents
+  repeated string features = 3;
+  // The account the user belongs to (ADR 0021), for devices: what billing and
+  // quotas hang on. It grants nothing.
+  string account_id = 4;
+  // For devices (ADR 0037): the root's wrapped copies the server keeps, so a
+  // device sees whether a new device can sign in, and signs a list that keeps
+  // the other devices' passkeys. It grants nothing.
+  RootWrapsHeld root_wraps = 5;
+}
+
+// The server's list of the root's wraps and their blobs, as it received them.
+// Empty when it keeps none.
+message RootWrapsHeld {
+  uint64 seq = 1;
+  repeated WrapBlob blobs = 2;
+}
+
+message Refused {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    REASON_BAD_SIGNATURE = 1;
+    REASON_UNKNOWN_MACHINE = 2;
+    REASON_BAD_JOIN = 3;
+    REASON_PROTOCOL = 4;
+    // The owner removed this device (ADR 0004): it never gets back in.
+    REASON_REVOKED = 5;
+  }
+  Reason reason = 1;
+}
+
+// A device announces a join: the server stores only the secret's hash, so a
+// leaked database cannot be used to join a machine.
+message JoinOpen {
+  bytes secret_hash = 1;
+}
+
+message JoinOpened {
+  int64 expires_at_ms = 1;
+}
+
+message MachinesRequest {}
+
+message Machines {
+  repeated MachineInfo machines = 1;
+}
+
+message MachineInfo {
+  string machine_id = 1;
+  bytes machine_public_key = 2;
+  string name = 3;
+  bool online = 4;
+  // As the machine last reported it; absent until it connects with a build
+  // that reports one.
+  HostInfo host = 5;
+  // What the agent proved at join, for the console that holds the secret.
+  bytes join_proof = 6;
+  // The root's registration of this machine key; the console trusts the key
+  // only with it (ADR 0004). Absent until the owner confirms the machine.
+  Registration registration = 7;
+}
+
+// device → server: the root registers a machine key (identity.Registration),
+// and the server keeps it beside the machine for every device.
+message Registration {
+  string statement = 1;
+  bytes signature = 2;
+}
+
+// device → server → agent: a signed SDP offer (identity statement `sdp`).
+message Signal {
+  string machine_id = 1;
+  bytes session_id = 2;
+  string sdp = 3;
+  bytes signature = 4;
+}
+
+message SignalDeliver {
+  bytes reply_handle = 1;
+  bytes device_public_key = 2;
+  bytes session_id = 3;
+  string sdp = 4;
+  bytes signature = 5;
+  // The certificate the device presented: the agent checks it itself,
+  // against the root it pinned at join (ADR 0004).
+  DeviceCertificate device_certificate = 6;
+  // Set when the offer comes from another machine for a copy (ADR 0035):
+  // its key, which signed the offer, and the grant naming both machines.
+  // The device fields are then empty.
+  bytes machine_public_key = 7;
+  TransferGrant grant = 8;
+}
+
+// agent → server → device: the signed answer.
+message SignalReply {
+  bytes reply_handle = 1;
+  string sdp = 2;
+  bytes signature = 3;
+}
+
+message SignalAnswer {
+  bytes session_id = 1;
+  string sdp = 2;
+  bytes signature = 3;
+  // To a machine that offered (ADR 0035): the answering machine's key, so the
+  // offerer checks the answer came from the machine its grant names.
+  bytes machine_public_key = 4;
+}
+
+// agent → server: a machine's offer to another machine of the same owner,
+// for a copy the grant allows (ADR 0035). The server forwards it only when
+// the grant is valid, names this machine as the destination and the target
+// as the source, and both machines are the grant's owner's; the target
+// checks it all again itself.
+message MachineSignal {
+  string to_machine = 1;
+  bytes session_id = 2;
+  string sdp = 3;
+  // The offering machine's signature over its machine-offer statement.
+  bytes signature = 4;
+  TransferGrant grant = 5;
+}
+
+// The server could not deliver: the target is offline or the handle expired.
+message Undeliverable {
+  bytes session_id = 1;
+}
+
+// device → server: the owner's devices. The server knows each by the key and
+// certificate it last showed; the names are the devices' own.
+message DevicesRequest {}
+
+message Devices {
+  repeated DeviceInfo devices = 1;
+  // The owner's current list of removed devices, if any.
+  RevocationList revocations = 2;
+}
+
+message DeviceInfo {
+  bytes public_key = 1;
+  string name = 2;
+  DeviceCertificate certificate = 3;
+  int64 last_seen_ms = 4;
+  bool online = 5;
+}
+
+// The root's list of removed devices (identity.Revocations): a device sends
+// a new one after the owner removes a device; the server keeps the newest,
+// refuses those devices, and gives the list to every agent, which checks it
+// against the root it pinned and merges it (the set only grows).
+message RevocationList {
+  string statement = 1;
+  bytes signature = 2;
+}
+
+// Adding a device (ADR 0004) runs a PAKE between two browsers through a
+// mailbox (magic-wormhole's rules): the owner's device allocates one and
+// gets a nameplate, which is not secret; the new browser opens it by that
+// nameplate, without a hello (it has no identity yet), and the server lets
+// go of the nameplate at once. Exactly two sides; a third is refused. The
+// server relays posts it cannot read, a few small ones per side, and drops
+// the mailbox when either side leaves or it expires. No part of the code's
+// secret ever reaches the server.
+message MailboxAllocate {}
+
+message MailboxAllocated {
+  string nameplate = 1;
+  int64 expires_at_ms = 2;
+}
+
+message MailboxOpen {
+  string nameplate = 1;
+}
+
+// Both sides are told once the second has opened the mailbox; the id binds
+// the PAKE to this mailbox.
+message MailboxOpened {
+  bytes mailbox_id = 1;
+}
+
+message MailboxPost {
+  bytes data = 1;
+}
+
+// From the server: the mailbox is gone, and why. From a side: it is done
+// with the mailbox (the reason is ignored), which ends it for both.
+message MailboxClosed {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    REASON_UNKNOWN = 1; // no such nameplate, or it was already opened
+    REASON_EXPIRED = 2;
+    REASON_PEER_LEFT = 3;
+    REASON_TOO_MUCH = 4; // too many posts or mailboxes, or a post too large
+  }
+  Reason reason = 1;
+  // The mailbox this is about; empty when it answers an allocate or an open
+  // that failed. A side that has moved on to a new mailbox ignores the rest.
+  string nameplate = 2;
+}
+
+// The root's wrapped copies of itself, kept by the server so a new browser
+// can recover the root (ADR 0021). The statement is an identity.RootWraps the
+// root signed, naming each blob by lookup key and digest; the server keeps
+// the blobs only if all of them match it and it is newer than the stored one.
+message RootWrapsPut {
+  string statement = 1;
+  bytes signature = 2;
+  repeated WrapBlob blobs = 3;
+}
+
+message WrapBlob {
+  bytes lookup = 1;
+  bytes blob = 2;
+}
+
+message RootWrapsAck {
+  bool stored = 1;
+}
+
+// A browser with no identity yet asks for a wrapped root by lookup key, as its
+// first message instead of a hello, once per connection. The key is derived
+// from the secret that opens the blob (never the secret itself).
+message WrapLookup {
+  bytes lookup = 1;
+}
+
+// Empty when nothing is kept under that key.
+message WrapFound {
+  bytes blob = 1;
+}
+
+// device → server: check machine_id for a newer release now (ADR 0026);
+// server → agent: the same, machine_id empty. It grants nothing: the agent
+// runs its own signed update (ADR 0023), which only takes a newer release
+// the root's key vouches for.
+message UpdateNow {
+  string machine_id = 1;
+}
+
+// agent → server: how the check went; server → devices: the same, with
+// machine_id filled in by the server from the agent's connection (never the
+// agent's say-so). A real update shows when the agent comes back with its
+// new version.
+message UpdateResult {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_STARTED = 1; // installing `version`; the agent restarts into it
+    STATE_UP_TO_DATE = 2;
+    STATE_BUSY = 3; // an update is already under way
+    STATE_TOO_SOON = 4; // checked less than a minute ago
+    STATE_FAILED = 5; // see code
+    STATE_OFFLINE = 6; // from the server: the machine is not connected
+  }
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    CODE_NO_RELEASE_KEY = 1; // a build without the release key never updates
+    CODE_FETCH = 2;
+    CODE_SIGNATURE = 3;
+    CODE_INSTALL = 4;
+  }
+  string machine_id = 1;
+  State state = 2;
+  string version = 3;
+  Code code = 4;
+}
+
+// device → server: the ICE servers to relay through when no direct path is
+// found (ADR 0028). Only an authenticated device asks; at most once a
+// minute per connection.
+message TurnRequest {}
+
+// server → device: STUN always; TURN with short-lived credentials when the
+// server has a relay configured (Cloudflare Realtime TURN).
+message TurnServers {
+  repeated IceServer ice_servers = 1;
+  // When the credentials stop working; ask again before then.
+  int64 expires_at_ms = 2;
+}
+
+message IceServer {
+  repeated string urls = 1;
+  string username = 2;
+  string credential = 3;
+}
+
+// The owner's directory (ADR 0006, 0032): their workspaces, sealed on the
+// device with a key derived from the root, so the server stores bytes it
+// cannot read and a number it counts up. Devices only; an agent never asks.
+
+// device → server: send me the directory as it is.
+message DirectoryGet {}
+
+// server → device: the directory as stored, in answer to a get, and pushed
+// to the owner's other devices whenever one of them changes it. rev 0 with
+// no blob: there is none yet.
+message Directory {
+  bytes blob = 1;
+  uint64 rev = 2;
+}
+
+// device → server: store this in place of the version base_rev names. The
+// server stores it as base_rev + 1 only if base_rev is what it holds;
+// otherwise it answers DirectoryConflict and stores nothing.
+message DirectoryPut {
+  bytes blob = 1;
+  uint64 base_rev = 2;
+}
+
+// server → device: stored, as rev.
+message DirectoryAck {
+  uint64 rev = 1;
+}
+
+// server → device: not stored; this is what is there now. Also the answer to
+// a blob over the size limit, with the stored one, so the device never loops.
+message DirectoryConflict {
+  bytes blob = 1;
+  uint64 rev = 2;
+  // Why: CONFLICT (base_rev is not what is stored), TOO_LARGE.
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    REASON_CONFLICT = 1;
+    REASON_TOO_LARGE = 2;
+  }
+  Reason reason = 3;
+}

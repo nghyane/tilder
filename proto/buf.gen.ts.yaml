@@ -1,0 +1,9 @@
+# TypeScript side, run from web/ by `bun run proto` with the npm build of the
+# same buf version go/tools pins (1.73.0). Paths are relative to web/.
+version: v2
+plugins:
+  - local: ["node_modules/.bin/protoc-gen-es"]
+    out: src/transport/gen
+    opt:
+      - target=ts
+      - import_extension=none

@@ -1,0 +1,109 @@
+# Every linter here is on for a reason we can name (docs/v2/REFERENCES.md §6);
+# nothing rides on "default". Exclusions carry the rule they relax and why.
+version: "2"
+
+run:
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - depguard
+    - errcheck
+    - errorlint
+    - forbidigo
+    - forcetypeassert
+    - gocognit
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - paralleltest
+    - revive
+    - sqlclosecheck
+    - staticcheck
+    - tparallel
+    - unused
+    - usetesting
+  settings:
+    gocognit:
+      min-complexity: 30
+    nestif:
+      min-complexity: 6
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # readability of structs beats a few bytes
+    revive:
+      rules:
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: exported
+        - name: early-return
+        - name: unused-receiver
+        - name: import-shadowing
+    depguard:
+      rules:
+        # ARCHITECTURE §4: identity and the rendezvous core are pure, so they
+        # are tested without a network, a disk or a database.
+        pure:
+          files:
+            - "**/internal/identity/**"
+            - "**/internal/rendezvous/core/**"
+          deny:
+            - pkg: net
+              desc: pure package — no network
+            - pkg: os
+              desc: pure package — no filesystem or environment
+            - pkg: database/sql
+              desc: pure package — storage is behind an interface
+            - pkg: modernc.org/sqlite
+              desc: pure package — storage is behind an interface
+            - pkg: github.com/pion
+              desc: pure package — transport lives in internal/agent
+        # ADR 0005: only the holder starts processes; ADR 0016: the service
+        # package runs systemctl and launchctl.
+        exec:
+          files:
+            - "$all"
+            - "!**/internal/holder/**"
+            - "!**/internal/service/**"
+            # ADR 0020: this test runs the release's install script with sh,
+            # as the owner's machine does; it starts no process of the product.
+            - "!**/internal/rendezvous/dist/install_test.go"
+          deny:
+            - pkg: os/exec
+              desc: processes are started only by internal/holder and internal/service
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^time\.(Now|Since|Until|Sleep|After|AfterFunc|Tick|NewTimer|NewTicker)$'
+          msg: take a clock.Clock (internal/clock) so tests can advance time
+        - pattern: '^os\.(Getenv|LookupEnv|Environ)$'
+          msg: only cmd/ reads the environment; pass configuration in
+  exclusions:
+    generated: strict
+    rules:
+      - path: internal/clock/
+        linters: [forbidigo]
+      - path: cmd/
+        text: "os\\.(Getenv|LookupEnv|Environ)"
+        linters: [forbidigo]
+      # testutil defines the standard test timeouts as time.Duration values.
+      - path: internal/testutil/
+        linters: [forbidigo]
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/nghyane/tilder

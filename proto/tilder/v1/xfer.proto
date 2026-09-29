@@ -1,0 +1,204 @@
+syntax = "proto3";
+
+// Copies between machines (ADR 0035), on two DataChannels.
+//
+// `xfer-ctl`: a device asks the destination machine to pull (on the device's
+// own connection to that machine). Every message carries its request's id;
+// progress for a copy comes on the id of the Pull that started it.
+//
+// `xfer`: the destination machine pulls from the source machine, on a
+// connection the destination opened for one grant. The source serves only
+// what that grant names, read-only. Chunks are 1 MiB for hashing and
+// resuming; each travels as pieces of at most 15 KiB (ADR 0022: messages
+// under 16 KiB), then its hash.
+package tilder.v1;
+
+import "tilder/v1/fs.proto";
+import "tilder/v1/rendezvous.proto";
+
+option go_package = "github.com/nghyane/tilder/go/internal/wire/tilder/v1;tilderv1";
+
+message XferCtlClient {
+  uint32 req_id = 1;
+  oneof msg {
+    XferPull pull = 2;
+    XferList list = 3;
+    XferCancel cancel = 4;
+  }
+}
+
+message XferCtlServer {
+  uint32 req_id = 1;
+  oneof msg {
+    XferAccepted accepted = 2;
+    XferProgress progress = 3;
+    XferDone done = 4;
+    XferFailed failed = 5;
+    XferJobs jobs = 6;
+  }
+}
+
+// Pull what the grant names into the destination. The destination refuses a
+// grant not for itself, not from its owner's device, removed, or out of date.
+message XferPull {
+  TransferGrant grant = 1;
+}
+
+// The copies this machine holds, running or ended not long ago: a tab opened
+// again shows them.
+message XferList {}
+
+message XferCancel {
+  // The copy's id (the grant's nonce, base64url).
+  string id = 1;
+}
+
+message XferAccepted {
+  string id = 1;
+}
+
+enum XferRoute {
+  XFER_ROUTE_UNSPECIFIED = 0;
+  XFER_ROUTE_DIRECT = 1;
+  XFER_ROUTE_RELAYED = 2;
+}
+
+message XferProgress {
+  string id = 1;
+  uint64 bytes = 2;
+  uint64 total = 3;
+  uint32 files = 4;
+  uint32 files_done = 5;
+  XferRoute route = 6;
+  // The name copied, as the destination shows it.
+  bytes name = 7;
+  // Waiting for the source machine (offline, or the connection being made).
+  bool waiting = 8;
+  // In a List: the copy ended, done when code is unspecified.
+  bool ended = 9;
+  XferFailed.Code code = 10;
+}
+
+message XferDone {
+  string id = 1;
+}
+
+message XferFailed {
+  string id = 1;
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    CODE_DENIED = 1;
+    CODE_UNREACHABLE = 2;
+    CODE_NOT_FOUND = 3;
+    CODE_NO_SPACE = 4;
+    CODE_CHANGED = 5;
+    CODE_CANCELLED = 6;
+    CODE_EXPIRED = 7;
+    CODE_INTERNAL = 8;
+    // More entries than one copy may hold: copy a folder further down.
+    CODE_TOO_LARGE = 9;
+  }
+  Code code = 2;
+}
+
+message XferJobs {
+  repeated XferProgress jobs = 1;
+}
+
+message XferClient {
+  oneof msg {
+    XferManifestRequest manifest = 1;
+    XferWant want = 2;
+    XferAck ack = 3;
+  }
+}
+
+message XferServer {
+  oneof msg {
+    XferManifest manifest = 1;
+    XferPiece piece = 2;
+    XferChunkEnd chunk_end = 3;
+    XferRefused refused = 4;
+  }
+}
+
+// What the grant names: send its manifest.
+message XferManifestRequest {}
+
+// The manifest comes as pages, each under 16 KiB, in order; `last` ends it.
+// Entries are numbered across pages from 0: that number is what Want names.
+// A directory comes before what it holds.
+message XferManifest {
+  repeated XferEntry entries = 1;
+  uint32 chunk_size = 2;
+  bool last = 3;
+  // Special files (FIFOs, devices, sockets) left out.
+  uint32 skipped = 4;
+}
+
+// One entry of what is copied: path relative to the grant's source (empty
+// for the source itself when it is a file), and how to recreate it.
+message XferEntry {
+  bytes path = 1;
+  FsKind kind = 2;
+  uint64 size = 3;
+  uint32 perm = 4;
+  int64 mtime_ns = 5;
+  // The file as it was listed: a read that finds another version is refused.
+  bytes etag = 6;
+  // For a symlink: its target, copied as a link, never followed.
+  bytes link_target = 7;
+}
+
+// Send file `file` (its index in this connection's manifest) from chunk
+// `from_chunk` to its end. Wants are served in the order sent. The
+// destination never names a path: only what the source listed is served.
+message XferWant {
+  uint32 file = 1;
+  uint64 from_chunk = 2;
+}
+
+// Chunk `index` of file `file` is written and checked: the source may send
+// that much more (credit: at most 16 MiB not yet acked).
+message XferAck {
+  uint32 file = 1;
+  uint64 index = 2;
+}
+
+message XferPiece {
+  uint32 file = 1;
+  uint64 index = 2;
+  bytes data = 3;
+}
+
+// The chunk is complete; its SHA-256, which the destination checks before
+// keeping it.
+message XferChunkEnd {
+  uint32 file = 1;
+  uint64 index = 2;
+  bytes sha256 = 3;
+}
+
+// The source will not serve: the whole copy, or, when `file` is set, that one
+// file (it changed since the manifest, or is gone), the connection going on.
+message XferRefused {
+  XferFailed.Code code = 1;
+  optional uint32 file = 2;
+}
+
+// `xfer-lan` (ADR 0039): when the connection between the two machines runs
+// host to host inside one LAN, the destination opens this channel on it and
+// the source answers with one XferLan. The copy's `xfer` messages then go
+// over TCP to that port, under TLS with a certificate the source made for
+// this one offer, each message behind a 4-byte length. The destination pins
+// `cert_sha256` and sends `token` as its first message; both came over the
+// connection the grant opened, so no one else holds them. The channel stays
+// open while the copy runs: when it closes, so does the TCP connection.
+// Anything else and the copy stays on the `xfer` channel.
+message XferLan {
+  uint32 port = 1;
+  // SHA-256 of the certificate's DER.
+  bytes cert_sha256 = 2;
+  // 32 random bytes, for one connection.
+  bytes token = 3;
+}

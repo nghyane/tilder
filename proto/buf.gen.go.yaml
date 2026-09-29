@@ -1,0 +1,9 @@
+# Go side, run through `make proto`, which runs buf from go/tools so every plugin is
+# the version pinned in go/tools/go.mod. Paths below are relative to go/tools.
+version: v2
+plugins:
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: ../internal/wire
+    opt:
+      - paths=source_relative
+      - default_api_level=API_OPEN

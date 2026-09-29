@@ -1,0 +1,86 @@
+{
+  "ownerSeed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "machineSeed": "ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1-f4CBgoM",
+  "userId": "U4W-7pspuy9r8OO_JawBwA",
+  "machineId": "wQNcM07FPKZpsVJgaOQm0w",
+  "ownerKeyText": "broot:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "machineKeyText": "bmach:C7w0aldmfDgBIL2cf9flHSxf3-o3zS9b9AWyxr9vLXg",
+  "joinSecret": "am9pbi1zZWNyZXQtMDEyMzQ1Njc4OWFiY2RlZjAxMjM",
+  "joinToken": "tilder1_am9pbi1zZWNyZXQtMDEyMzQ1Njc4OWFiY2RlZjAxMjMDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuPLJx-w",
+  "joinSecretHash": "l7k4hL8wm_HhOZTyP_Vv_U3-k3jKoKdymteDQEGnH3E",
+  "joinProof": "qAc-4K-_g60_b3X11ajDLh0H-fym3OzcDul02Y_kf3Y",
+  "deviceSeed": "yMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5uc",
+  "deviceName": "laptop",
+  "vectors": [
+    {
+      "name": "device-hello",
+      "signer": "device",
+      "publicKey": "MrU-iC49qsGA16X2Ik1htkAbQ_kB2wnw5NhM5OSicYs",
+      "text": "tilder/device-hello/v2\nnonce=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY\nkey=MrU-iC49qsGA16X2Ik1htkAbQ_kB2wnw5NhM5OSicYs\n",
+      "signature": "o1SWfEZEjFHtZYaRlh1NRqznx5BL3HjNtVZQPgRu6AdV46_xXvZB9JkJ5KroaAOqavrVnImR7emJvomNkfQ8BQ"
+    },
+    {
+      "name": "agent-hello",
+      "signer": "machine",
+      "publicKey": "C7w0aldmfDgBIL2cf9flHSxf3-o3zS9b9AWyxr9vLXg",
+      "text": "tilder/agent-hello/v2\nnonce=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY\nkey=C7w0aldmfDgBIL2cf9flHSxf3-o3zS9b9AWyxr9vLXg\n",
+      "signature": "C6W59bmKzBgssuO63e1-B2LW7_n_3wqNCxiJBSFDTa0UIwCETU3ql2eBN4y86wBWcsDz0U_KJLEiTb4cG0DgDw"
+    },
+    {
+      "name": "offer",
+      "signer": "device",
+      "publicKey": "MrU-iC49qsGA16X2Ik1htkAbQ_kB2wnw5NhM5OSicYs",
+      "text": "tilder/offer/v2\nmachine=wQNcM07FPKZpsVJgaOQm0w\nsession=c2Vzc2lvbi0wMDAx\nsdp=dFcnJL2qo95WDuwbHC2cdP-1uwxvozcSJaYr3vLiPCo\n",
+      "signature": "rWE-aoybPYjh2xeshBngI1MhaajTYJ1uVYd1CV1LF2VuRIaF2pMO2oSvp4QnNIaY-3E0IFz5MiU8Xrxr2xB-AA"
+    },
+    {
+      "name": "answer",
+      "signer": "machine",
+      "publicKey": "C7w0aldmfDgBIL2cf9flHSxf3-o3zS9b9AWyxr9vLXg",
+      "text": "tilder/answer/v2\nmachine=wQNcM07FPKZpsVJgaOQm0w\nsession=c2Vzc2lvbi0wMDAx\noffer=dFcnJL2qo95WDuwbHC2cdP-1uwxvozcSJaYr3vLiPCo\nsdp=XYuviT5r2QhOz8NjoS-dBwfmlPL5gBdU8z8nUJDFBTA\n",
+      "signature": "RCr5W4ZkdUh0Lkav8I0AWBbqN2oMgt1hxexJhMDqJWe4fdhMRospFuJoQPRA6sv_J6O4xKc7FFg-DJf6asfDCg"
+    },
+    {
+      "name": "machine-offer",
+      "signer": "machine",
+      "publicKey": "C7w0aldmfDgBIL2cf9flHSxf3-o3zS9b9AWyxr9vLXg",
+      "text": "tilder/machine-offer/v2\nmachine=machine-a\nfrom=wQNcM07FPKZpsVJgaOQm0w\nsession=c2Vzc2lvbi0wMDAx\nsdp=dFcnJL2qo95WDuwbHC2cdP-1uwxvozcSJaYr3vLiPCo\ngrant=TRXE1F4xtguWojwg5fMr5GRyI5Uhv4kdeMHVM6k_SwY\n",
+      "signature": "7EOIOufZj2rkS1O7dyaY7rB05j4ClPahHCMBUxNxvsiQ-742g3PaR57z7ZRzwoNGd3pKeqkM9QUccDR3T0QWAw"
+    },
+    {
+      "name": "device-cert",
+      "signer": "owner",
+      "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "text": "tilder/device-cert/v2\nuser=U4W-7pspuy9r8OO_JawBwA\nroot=A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\ndevice=MrU-iC49qsGA16X2Ik1htkAbQ_kB2wnw5NhM5OSicYs\nname_hash=3ZcGS8IUeZD7ItD65sQo4PiLLvTWO8r53bmX0evV3tY\nrev_seq=7\nnot_before=1790000000\nnot_after=1797776000\n",
+      "signature": "g5myQtUJDwCIxhQr4877hxGdQpOgDa7KW2KO5tk3_0-HkawGQcbC756covla3TBUloEaL4hyu3YLznmJ2LNxAw"
+    },
+    {
+      "name": "transfer",
+      "signer": "device",
+      "publicKey": "MrU-iC49qsGA16X2Ik1htkAbQ_kB2wnw5NhM5OSicYs",
+      "text": "tilder/transfer/v2\nuser=U4W-7pspuy9r8OO_JawBwA\ndevice=MrU-iC49qsGA16X2Ik1htkAbQ_kB2wnw5NhM5OSicYs\nsrc_machine=wQNcM07FPKZpsVJgaOQm0w\nsrc_path=c3JjL3Byb2o\ndst_machine=machine-b\ndst_path=aW5ib3g\nnot_after=1790003600\nnonce=BwcHBwcHBwcHBwcHBwcHBw\n",
+      "signature": "M45tzYTCUPu_6aiGNv00uDk8DCfY8bGAxKHYAmQSv8lG0OXz3oCuNE6JRbucY2V4H2SkxJo6ssjtcS06efRSCA"
+    },
+    {
+      "name": "register",
+      "signer": "owner",
+      "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "text": "tilder/register/v2\nuser=U4W-7pspuy9r8OO_JawBwA\nmachine=wQNcM07FPKZpsVJgaOQm0w\nmachine_pub=C7w0aldmfDgBIL2cf9flHSxf3-o3zS9b9AWyxr9vLXg\nat=1790000000\n",
+      "signature": "re8CjUsyIB_HxLXAHWsX0XECxUEr40PLZhzVwcM8nIB2lqe60i0dhoC7Kf5EHCXRmjF3J8gcOEDYUNu1hOtwDQ"
+    },
+    {
+      "name": "revocations",
+      "signer": "owner",
+      "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "text": "tilder/revocations/v2\nuser=U4W-7pspuy9r8OO_JawBwA\nseq=3\ndevices=MrU-iC49qsGA16X2Ik1htkAbQ_kB2wnw5NhM5OSicYs,6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw\nat=1790000000\n",
+      "signature": "PeEfhhbEpJnW82uQsrTCAhcHl7GBG6NtsRYGEfQ2NAiFXZfEnZjyNBKLWWOUJobDox0ZOQg1CIrJtBm8pDAfBw"
+    },
+    {
+      "name": "root-wraps",
+      "signer": "owner",
+      "publicKey": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "text": "tilder/root-wraps/v2\nuser=U4W-7pspuy9r8OO_JawBwA\nseq=2\nwraps=AwMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,CQkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nat=1790000000\n",
+      "signature": "1W5cuSyHNPvLvXBXg2bRZncQKngMbhC02EQylXsBg5tkTPurScdFU3HY7rR4RIS_RBE_8cvPz5gtSFxBWWOZAQ"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# The wire's single source (ADR 0003). `buf breaking` against main runs in CI:
+# a shipped field number or enum value is permanent.
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - WIRE_JSON

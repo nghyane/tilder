@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+// Files over the `fs` DataChannel (ADR 0022). Paths and names are bytes: the
+// exact names on disk, never normalised, maybe not UTF-8. A path is
+// slash-separated and relative to the machine's home; empty is the home.
+// Every message carries its request's id; replies carry the same id.
+package tilder.v1;
+
+option go_package = "github.com/nghyane/tilder/go/internal/wire/tilder/v1;tilderv1";
+
+message FsClient {
+  uint32 req_id = 1;
+  oneof msg {
+    FsStat stat = 2;
+    FsList list = 3;
+    FsRead read = 4;
+    FsAck ack = 5;
+    FsWrite write = 6;
+    FsData data = 7;
+    FsCommit commit = 8;
+    FsAbort abort = 9;
+    FsMkdir mkdir = 10;
+    FsRename rename = 11;
+    FsRemove remove = 12;
+    FsCancel cancel = 13;
+    FsWatch watch = 14;
+    FsUnwatch unwatch = 15;
+  }
+}
+
+message FsServer {
+  uint32 req_id = 1;
+  oneof msg {
+    FsEntry entry = 2;
+    FsEntries entries = 3;
+    FsChunk chunk = 4;
+    FsEof eof = 5;
+    FsCredit credit = 6;
+    FsOk ok = 7;
+    FsError error = 8;
+    FsConflict conflict = 9;
+    FsChanged changed = 10;
+  }
+}
+
+message FsStat {
+  bytes path = 1;
+}
+
+// A page of a directory, sorted by name bytes, after the name `after`. A page
+// is cut to fit one message; `next` continues it, empty at the end.
+message FsList {
+  bytes path = 1;
+  bytes after = 2;
+  uint32 limit = 3;
+}
+
+// Streams bytes [offset, offset+length) (length 0: to the end) as FsChunks,
+// then FsEof. At most `window` bytes (the agent clamps it to
+// [64 KiB, 1 MiB]) go unacknowledged.
+message FsRead {
+  bytes path = 1;
+  uint64 offset = 2;
+  uint64 length = 3;
+  uint32 window = 4;
+}
+
+// The bytes of a read received so far, counted from its start.
+message FsAck {
+  uint64 received = 1;
+}
+
+// Starts a write; FsData follows as the agent grants FsCredit, then FsCommit
+// (or FsAbort). With if_etag the commit fails with FsConflict if the file
+// changed since it had that etag; with create_only, if it exists.
+message FsWrite {
+  bytes path = 1;
+  bytes if_etag = 2;
+  bool create_only = 3;
+}
+
+message FsData {
+  bytes data = 1;
+}
+
+message FsCommit {}
+
+message FsAbort {}
+
+message FsMkdir {
+  bytes path = 1;
+}
+
+message FsRename {
+  bytes from = 1;
+  bytes to = 2;
+  bool no_replace = 3;
+}
+
+message FsRemove {
+  bytes path = 1;
+  bool recursive = 2;
+}
+
+// Stops the request with this id: a read stops sending, a write is dropped.
+message FsCancel {}
+
+// Watches one directory (not what is under it) while it is open in the UI;
+// FsChanged messages carry this request's id until FsUnwatch with the same id.
+message FsWatch {
+  bytes path = 1;
+}
+
+message FsUnwatch {}
+
+// Names in a watched directory that changed (created, written or removed:
+// the console looks again). `rescan` means too many to list, or events were
+// lost: read the whole directory again.
+message FsChanged {
+  repeated bytes names = 1;
+  bool rescan = 2;
+}
+
+enum FsKind {
+  FS_KIND_UNSPECIFIED = 0;
+  FS_KIND_FILE = 1;
+  FS_KIND_DIR = 2;
+  FS_KIND_SYMLINK = 3;
+  FS_KIND_OTHER = 4;
+}
+
+message FsEntry {
+  bytes name = 1;
+  FsKind kind = 2;
+  uint64 size = 3;
+  int64 mtime_ns = 4;
+  uint32 perm = 5;
+  // Changes whenever the file does: what a write's if_etag names.
+  bytes etag = 6;
+  bytes link_target = 7;
+  FsKind link_kind = 8;
+  // A link that points nowhere, or above its directory (never followed).
+  bool dangling = 9;
+}
+
+message FsEntries {
+  repeated FsEntry entries = 1;
+  bytes next = 2;
+  // The directory holds more names than the agent lists.
+  bool truncated = 3;
+}
+
+message FsChunk {
+  uint64 offset = 1;
+  bytes data = 2;
+}
+
+// The end of a read: the file as read, and the SHA-256 of the bytes sent.
+message FsEof {
+  FsEntry entry = 1;
+  bytes sha256 = 2;
+}
+
+// Total bytes of this write the client may have sent so far: it paces
+// itself by this, so a big upload does not hold up the shells.
+message FsCredit {
+  uint64 accepted = 1;
+}
+
+message FsOk {
+  FsEntry entry = 1;
+}
+
+message FsError {
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    CODE_DENIED = 1;
+    CODE_NOT_FOUND = 2;
+    CODE_EXISTS = 3;
+    CODE_NOT_DIR = 4;
+    CODE_IS_DIR = 5;
+    CODE_NOT_REGULAR = 6;
+    CODE_CONFLICT = 7;
+    CODE_INVALID = 8;
+    CODE_NO_SPACE = 9;
+    CODE_BUSY = 10; // too many requests at once on this channel
+    CODE_WATCH_LIMIT = 11; // cannot watch it: the console looks again on focus instead
+  }
+  Code code = 1;
+}
+
+message FsConflict {
+  FsEntry current = 1;
+}

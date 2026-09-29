@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+// The first message on every connection (PROTOCOL §1): both sides use the
+// lower protocol number, and new behaviour travels as named features rather
+// than version bumps.
+package tilder.v1;
+
+option go_package = "github.com/nghyane/tilder/go/internal/wire/tilder/v1;tilderv1";
+
+message Hello {
+  uint32 protocol = 1;
+  repeated string features = 2;
+}
