@@ -3,6 +3,7 @@ package state_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -21,7 +22,8 @@ func TestTheMachineKeyIsCreatedOnceAndKeptPrivate(t *testing.T) {
 		t.Fatal("a restart made a new machine key")
 	}
 	info, err := os.Stat(filepath.Join(home, "identity.json"))
-	if err != nil || info.Mode().Perm() != 0o600 {
+	// Windows has no mode bits: the key is private by the profile's ACL.
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("identity.json mode %v", info.Mode().Perm())
 	}
 }

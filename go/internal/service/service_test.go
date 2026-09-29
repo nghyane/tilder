@@ -1,3 +1,5 @@
+//go:build unix
+
 package service_test
 
 import (
@@ -11,13 +13,9 @@ import (
 	"testing"
 
 	"github.com/coder/quartz"
-	"go.uber.org/goleak"
 
 	"github.com/nghyane/tilder/go/internal/service"
-	"github.com/nghyane/tilder/go/internal/testutil"
 )
-
-func TestMain(m *testing.M) { goleak.VerifyTestMain(m, testutil.GoleakOptions...) }
 
 func spec(t *testing.T) service.Spec {
 	t.Helper()

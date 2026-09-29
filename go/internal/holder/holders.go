@@ -1,7 +1,6 @@
 package holder
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -168,10 +167,7 @@ func ExecSpawner(runDir string, underSystemd bool) Spawner {
 func ExecSpawnerFor(self, runDir string, underSystemd bool) Spawner {
 	return func(id string, cols, rows uint16, dir string) error {
 		name, args := holderCommand(self, runDir, id, cols, rows, dir, underSystemd)
-		// Its life is its own, not a request's: no context to cancel it.
-		cmd := exec.CommandContext(context.Background(), name, args...) //nolint:gosec // G204: this binary, re-run as a holder
-		detach(cmd)
-		return startDetached(cmd)
+		return startHolder(name, args)
 	}
 }
 

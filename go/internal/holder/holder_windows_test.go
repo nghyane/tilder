@@ -19,7 +19,12 @@ import (
 	"github.com/nghyane/tilder/go/internal/testutil"
 )
 
-func TestMain(m *testing.M) { goleak.VerifyTestMain(m, testutil.GoleakOptions...) }
+// The detached holder test's reaper waits on a real holder, which outlives
+// its shell by DefaultExitedTTL: the process table's goroutine, not a leak.
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m, append(testutil.GoleakOptions,
+		goleak.IgnoreAnyFunction("github.com/nghyane/tilder/go/internal/holder.startDetached.func1"))...)
+}
 
 // runDirWin is a short socket directory: AF_UNIX paths are bounded on
 // Windows too, and a t.TempDir() path carries the test's name.
@@ -95,17 +100,7 @@ func TestAWindowsShellRunsInAPseudoconsole(t *testing.T) {
 		t.Fatalf("resize: %v", err)
 	}
 	s.Kill()
-	deadline := time.After(testutil.WaitMedium) //nolint:forbidigo // a real shell needs real time
-	for {
-		select {
-		case e, ok := <-v.Events():
-			if !ok || e.Exited {
-				return
-			}
-		case <-deadline:
-			t.Fatal("the shell did not end after Kill")
-		}
-	}
+	waitExitWin(t, v)
 }
 
 // ADR 0044's first risk: the holder, started detached and out of the
@@ -113,7 +108,9 @@ func TestAWindowsShellRunsInAPseudoconsole(t *testing.T) {
 // that very shell (a variable set in it is still set).
 func TestADetachedHolderKeepsItsShellAcrossAgentsOnWindows(t *testing.T) {
 	t.Parallel()
-	bin := filepath.Join(t.TempDir(), "tilder.exe")
+	// Not t.TempDir(): Windows keeps a running binary from being deleted, and
+	// the holder outlives the test by its ExitedTTL.
+	bin := filepath.Join(runDirWin(t), "tilder.exe")
 	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./cmd/tilder") //nolint:gosec // G204: the test's own temp path
 	build.Dir = filepath.Join("..", "..")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -154,4 +151,20 @@ func TestADetachedHolderKeepsItsShellAcrossAgentsOnWindows(t *testing.T) {
 	var more strings.Builder
 	readUntilWin(t, v2, &more, "again kept-42")
 	again.Kill()
+	waitExitWin(t, v2)
+}
+
+func waitExitWin(t *testing.T, v *holder.Viewer) {
+	t.Helper()
+	deadline := time.After(testutil.WaitMedium) //nolint:forbidigo // a real shell needs real time
+	for {
+		select {
+		case e, ok := <-v.Events():
+			if !ok || e.Exited {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the shell did not end after Kill")
+		}
+	}
 }

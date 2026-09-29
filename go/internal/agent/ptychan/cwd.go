@@ -89,5 +89,6 @@ func place(home, dir string) *tilderv1.PtyCwd {
 	if rel == "." {
 		rel = ""
 	}
-	return &tilderv1.PtyCwd{Dir: []byte(rel)}
+	// The fs channel takes slash paths, whatever the machine's separator.
+	return &tilderv1.PtyCwd{Dir: []byte(filepath.ToSlash(rel))}
 }

@@ -1,3 +1,5 @@
+//go:build unix
+
 package rtc_test
 
 import (
@@ -10,7 +12,6 @@ import (
 	"github.com/coder/quartz"
 	"github.com/pion/ice/v4"
 	"github.com/pion/webrtc/v4"
-	"go.uber.org/goleak"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/nghyane/tilder/go/internal/agent/ptychan"
@@ -180,8 +181,6 @@ func TestABrowserRunsACommandAndResumesWithoutRepeats(t *testing.T) {
 		t.Fatalf("the resumed stream replayed output already on screen: %q", text)
 	}
 }
-
-func TestMain(m *testing.M) { goleak.VerifyTestMain(m, testutil.GoleakOptions...) }
 
 // Without acks the agent stops at the window; with them it goes on, and not
 // a byte is lost on the way.

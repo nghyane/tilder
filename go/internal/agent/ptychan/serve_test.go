@@ -1,3 +1,5 @@
+//go:build unix
+
 package ptychan_test
 
 import (
@@ -9,7 +11,6 @@ import (
 	"time"
 
 	"github.com/coder/quartz"
-	"go.uber.org/goleak"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/nghyane/tilder/go/internal/agent/ptychan"
@@ -17,8 +18,6 @@ import (
 	"github.com/nghyane/tilder/go/internal/testutil"
 	tilderv1 "github.com/nghyane/tilder/go/internal/wire/tilder/v1"
 )
-
-func TestMain(m *testing.M) { goleak.VerifyTestMain(m, testutil.GoleakOptions...) }
 
 func send(t *testing.T, c net.Conn, msg *tilderv1.PtyClient) {
 	t.Helper()

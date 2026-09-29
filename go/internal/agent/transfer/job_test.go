@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -44,7 +45,8 @@ func TestAFolderArrivesWholeAndAsItWas(t *testing.T) {
 	if target, err := os.Readlink(filepath.Join(s.dst, "inbox/proj/link")); err != nil || target != "a.txt" {
 		t.Fatalf("link = %q, %v", target, err)
 	}
-	if info, _ := os.Stat(filepath.Join(s.dst, "inbox/proj/a.txt")); info.Mode().Perm() != 0o751 {
+	// Windows keeps no mode bits to carry.
+	if info, _ := os.Stat(filepath.Join(s.dst, "inbox/proj/a.txt")); runtime.GOOS != "windows" && info.Mode().Perm() != 0o751 {
 		t.Fatalf("perm = %v", info.Mode().Perm())
 	}
 	if info, _ := os.Stat(filepath.Join(s.dst, "inbox/proj/lib/big.bin")); !info.ModTime().Equal(when) {
