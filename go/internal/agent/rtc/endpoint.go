@@ -15,6 +15,7 @@ import (
 	"github.com/pion/ice/v4"
 	"github.com/pion/webrtc/v4"
 
+	"github.com/nghyane/tilder/go/internal/clock"
 	"github.com/nghyane/tilder/go/internal/identity"
 )
 
@@ -27,7 +28,15 @@ type Options struct {
 	// LoopbackOnly offers 127.0.0.1 and nothing else: tests whose outcome
 	// hangs on which pair ICE picks, the same on every machine.
 	LoopbackOnly bool
+	// Clock bounds gathering; nil is the real one.
+	Clock clock.Clock
 }
+
+// gatherBound caps the wait for candidates, as the console's GATHER_MS
+// does (ADR 0046): a relay transport a firewall drops rather than refuses
+// (TURN over TCP where only UDP gets out, or the other way) would hold the
+// SDP past the other side's patience. What was gathered by then is sent.
+const gatherBound = 5 * time.Second
 
 // Peer is who a connection serves, as the caller verified it.
 type Peer struct {
@@ -54,6 +63,7 @@ type Handler func(ctx context.Context, peer Peer, label string, ch io.ReadWriteC
 
 // Endpoint answers offers and serves their channels until closed.
 type Endpoint struct {
+	clock   clock.Clock
 	api     *webrtc.API
 	config  webrtc.Configuration
 	handler Handler
@@ -85,7 +95,12 @@ func New(opts Options, handler Handler) *Endpoint {
 	// default 1 MiB): a machine's terminals now share a connection (ADR 0018).
 	se.SetSCTPMaxReceiveBufferSize(4 << 20)
 	ctx, cancel := context.WithCancel(context.Background())
+	clk := opts.Clock
+	if clk == nil {
+		clk = clock.Real()
+	}
 	return &Endpoint{
+		clock:   clk,
 		api:     webrtc.NewAPI(webrtc.WithSettingEngine(se)),
 		config:  webrtc.Configuration{ICEServers: opts.ICEServers},
 		handler: handler,
@@ -118,7 +133,7 @@ func (e *Endpoint) Answer(ctx context.Context, offerSDP string, peer Peer) (stri
 		})
 	})
 
-	answer, err := negotiate(ctx, pc, offerSDP)
+	answer, err := negotiate(ctx, e.clock, pc, offerSDP)
 	if err != nil {
 		e.untrack(pc)
 		return "", err
@@ -148,7 +163,7 @@ func (e *Endpoint) newPeer(peer Peer) (*webrtc.PeerConnection, error) {
 	return pc, nil
 }
 
-func negotiate(ctx context.Context, pc *webrtc.PeerConnection, offerSDP string) (string, error) {
+func negotiate(ctx context.Context, clk clock.Clock, pc *webrtc.PeerConnection, offerSDP string) (string, error) {
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offerSDP}); err != nil {
 		return "", err
 	}
@@ -160,12 +175,24 @@ func negotiate(ctx context.Context, pc *webrtc.PeerConnection, offerSDP string) 
 	if err := pc.SetLocalDescription(answer); err != nil {
 		return "", err
 	}
-	select {
-	case <-gathered:
-	case <-ctx.Done():
-		return "", ctx.Err()
+	if err := gather(ctx, clk, gathered); err != nil {
+		return "", err
 	}
 	return pc.LocalDescription().SDP, nil
+}
+
+// gather waits for gathering to finish, at most gatherBound; the local
+// description then holds the candidates gathered so far.
+func gather(ctx context.Context, clk clock.Clock, gathered <-chan struct{}) error {
+	bound := clk.NewTimer(gatherBound, "gather")
+	defer bound.Stop()
+	select {
+	case <-gathered:
+	case <-bound.C:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
 }
 
 func (e *Endpoint) track(pc *webrtc.PeerConnection, peer string) bool {

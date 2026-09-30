@@ -155,6 +155,11 @@ func (l *Link) session(ctx context.Context) (connected bool, err error) {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	// Ends with this connection, before the wait: the loop below only
+	// returns on a read error, with ctx still live.
+	turnCtx, stopTurn := context.WithCancel(ctx)
+	defer stopTurn()
+	wg.Go(func() { l.keepTurn(turnCtx) })
 	for {
 		env, err := conn.read(ctx)
 		if err != nil {
@@ -338,7 +343,9 @@ func (l *Link) answer(ctx context.Context, conn *wsConn, d *tilderv1.SignalDeliv
 			return
 		}
 		device, _ := identity.DevicePublicFromBytes(d.GetDevicePublicKey()) // checked by trusted
-		peer = rtc.Peer{Name: PeerName(device)}
+		// The machine's own relay too (ADR 0046): behind a network that lets
+		// only the relay out, the browser's relay alone cannot reach it.
+		peer = rtc.Peer{Name: PeerName(device), ICEServers: l.relay()}
 	}
 	answerSDP, err := l.Answerer.Answer(actx, d.GetSdp(), peer)
 	if err != nil {

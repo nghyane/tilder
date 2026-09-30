@@ -6,6 +6,8 @@ import (
 	"net/netip"
 
 	"github.com/pion/webrtc/v4"
+
+	"github.com/nghyane/tilder/go/internal/clock"
 )
 
 // Conn is a connection this endpoint offered, with the one channel it
@@ -109,7 +111,7 @@ func (e *Endpoint) Dial(ctx context.Context, peer Peer, label string, signal Sig
 	if err != nil {
 		return nil, err
 	}
-	ch, err := dial(ctx, pc, label, signal)
+	ch, err := dial(ctx, e.clock, pc, label, signal)
 	if err != nil {
 		e.untrack(pc)
 		return nil, err
@@ -117,7 +119,7 @@ func (e *Endpoint) Dial(ctx context.Context, peer Peer, label string, signal Sig
 	return &Conn{ReadWriteCloser: ch, pc: pc, e: e}, nil
 }
 
-func dial(ctx context.Context, pc *webrtc.PeerConnection, label string, signal Signal) (io.ReadWriteCloser, error) {
+func dial(ctx context.Context, clk clock.Clock, pc *webrtc.PeerConnection, label string, signal Signal) (io.ReadWriteCloser, error) {
 	dc, err := pc.CreateDataChannel(label, nil)
 	if err != nil {
 		return nil, err
@@ -132,10 +134,8 @@ func dial(ctx context.Context, pc *webrtc.PeerConnection, label string, signal S
 	if lerr := pc.SetLocalDescription(offer); lerr != nil {
 		return nil, lerr
 	}
-	select {
-	case <-gathered:
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	if gerr := gather(ctx, clk, gathered); gerr != nil {
+		return nil, gerr
 	}
 	answer, err := signal(ctx, pc.LocalDescription().SDP)
 	if err != nil {

@@ -21,6 +21,9 @@ const (
 	turnWait = 3 * time.Second
 	// turnMargin: credentials this close to expiring are asked for again.
 	turnMargin = 5 * time.Minute
+	// turnRetry paces asking again when none came: the server answers a
+	// connection's asks at most once a minute (ADR 0043).
+	turnRetry = time.Minute
 )
 
 var (
@@ -127,6 +130,37 @@ func (l *Link) ICEServers(ctx context.Context) []webrtc.ICEServer {
 	l.connMu.Lock()
 	defer l.connMu.Unlock()
 	return l.turn
+}
+
+// keepTurn keeps relay credentials fresh while the connection lasts (ADR
+// 0046), as netbird's engine keeps one STUN/TURN list for all its peers: an
+// answer, to a browser or to a machine, then has a relay without waiting
+// for one. The server's are per owner, so this mints nothing a device of
+// the same owner would not have.
+func (l *Link) keepTurn(ctx context.Context) {
+	for ctx.Err() == nil {
+		l.ICEServers(ctx)
+		l.connMu.Lock()
+		refresh := l.turnUntil.Add(-turnMargin)
+		l.connMu.Unlock()
+		timer := l.Clock.NewTimer(max(refresh.Sub(l.Clock.Now()), turnRetry), "turn-refresh")
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+	}
+}
+
+// relay is the credentials in hand, nil when there are none: an answer to a
+// browser never waits for them (the endpoint's STUN is used).
+func (l *Link) relay() []webrtc.ICEServer {
+	l.connMu.Lock()
+	defer l.connMu.Unlock()
+	if l.turn != nil && l.Clock.Now().Before(l.turnUntil) {
+		return l.turn
+	}
+	return nil
 }
 
 // took hands a rendezvous message to whoever waits for it.
