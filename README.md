@@ -33,6 +33,35 @@ What this code guarantees, and you can check here:
 The rendezvous server and the console's interface are not published: the
 design treats the server as untrusted, so nothing above depends on it.
 
+## Windows
+
+The Windows agent is not code-signed yet, as many command-line tools
+(ripgrep, rclone, ttyd) are not. What that means for you:
+
+- **The install command does not trip SmartScreen.** SmartScreen checks
+  files marked as downloaded by a browser; the PowerShell command downloads
+  with `WebClient`/`Invoke-WebRequest`, which do not mark them. It checks the
+  install script and the agent against hashes pinned in the console instead.
+- **Smart App Control blocks it.** On a Windows 11 PC where Smart App Control
+  is on (Settings → Windows Security → App & browser control), unsigned
+  programs do not run, with no per-app exception. Use a PC where it is off,
+  or wait for signed releases.
+- **Microsoft Defender may flag it.** Tools that open a connection out and
+  let you work on the machine remotely are sometimes flagged, signed or not
+  (frp, cloudflared and NetBird have been). Every release is sent to
+  Microsoft for analysis before it is published; if Defender still flags
+  one, check the file is ours before anything else:
+
+  ```powershell
+  Get-FileHash "$env:LOCALAPPDATA\Programs\tilder\tilder.exe"
+  ```
+
+  and compare with `checksums.txt` of that release on your server
+  (`https://<server>/dist/<version>/checksums.txt`). If it matches, report
+  the detection as incorrect at
+  <https://www.microsoft.com/wdsi/filesubmission> and open an issue here with
+  the detection name.
+
 ## License
 
 Apache-2.0 ([`LICENSE`](LICENSE)).
