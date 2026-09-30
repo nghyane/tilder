@@ -156,6 +156,11 @@ func autoUpdate(ctx context.Context, server, home string, clk clock.Clock, log *
 
 // updater is this binary's updater, or why it has none.
 func updater(server, home string, clk clock.Clock) (*update.Updater, error) {
+	// A running binary cannot be replaced by link and exec on Windows: the
+	// rename-based update comes with ADR 0044's third phase.
+	if runtime.GOOS == "windows" {
+		return nil, errors.New("self-update is not on windows yet")
+	}
 	root, err := base64.RawURLEncoding.DecodeString(releaseRoot)
 	if err != nil || len(root) != ed25519.PublicKeySize {
 		return nil, update.ErrNoReleaseKey

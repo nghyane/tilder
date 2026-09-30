@@ -301,12 +301,13 @@ func hold(args []string) error {
 // runService installs, removes or reports the agent as the owner's own
 // service (ADR 0016). The service runs this very binary with this TILDER_HOME.
 func runService(home string, args []string) error {
-	const usage = "usage: tilder service install|uninstall|status [--name agent]"
+	const usage = "usage: tilder service install|uninstall|status|run [--name agent]"
 	if len(args) == 0 {
 		return errors.New(usage)
 	}
 	fs := flag.NewFlagSet("service", flag.ContinueOnError)
 	name := fs.String("name", "agent", "tells installs apart (a demo beside the real one)")
+	runHome := fs.String("home", "", "the agent's home (run: the Windows monitor is told it, having no TILDER_HOME)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -321,6 +322,9 @@ func runService(home string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *runHome != "" {
+		home = *runHome
+	}
 	absHome, err := filepath.Abs(home)
 	if err != nil {
 		return err
@@ -328,6 +332,11 @@ func runService(home string, args []string) error {
 	// A service starts with none of the login environment: bake in what the
 	// agent and its shells need.
 	env := map[string]string{"TILDER_HOME": absHome, "PATH": envOr("PATH", "/usr/local/bin:/usr/bin:/bin"), "SHELL": envOr("SHELL", "/bin/sh")}
+	if runtime.GOOS == "windows" {
+		// Started at sign-in, the Windows monitor has the login environment:
+		// only which agent it runs is baked in.
+		env = map[string]string{"TILDER_HOME": absHome}
+	}
 	for _, k := range []string{"LANG", "LC_ALL", "TILDER_STUN"} {
 		if v := os.Getenv(k); v != "" {
 			env[k] = v
@@ -358,6 +367,8 @@ func runService(home string, args []string) error {
 		fmt.Println("uninstalled; shells already running are left alone")
 		return nil
 	case "status":
+	case "run":
+		return m.Monitor(ctx, os.Getenv(service.HiddenEnv) != "")
 	default:
 		return errors.New(usage)
 	}

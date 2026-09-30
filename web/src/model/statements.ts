@@ -55,8 +55,11 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
 export const joinSecretPreimage = (secret: Uint8Array) =>
   concat(new TextEncoder().encode('tilder/join-secret/v2\n'), secret);
 
-/** The release the console was built with: its install script's hash (ADR 0020). */
-type Release = { version: string; installSha256: string };
+/**
+ * The release the console was built with: its install scripts' hashes (ADR
+ * 0020); a release from before Windows (ADR 0044) has no install.ps1.
+ */
+type Release = { version: string; installSha256: string; installPs1Sha256?: string };
 
 /**
  * The one command the owner runs on a new machine (ADR 0020). It checks the
@@ -71,6 +74,25 @@ export const joinCommand = (origin: string, token: string, release: Release, os:
   const check = os === 'macos' ? 'shasum -a 256 -c' : 'sha256sum -c';
   const url = `${origin}/dist/${release.version}/install.sh`;
   return `f=$(mktemp) && curl -fsSLo "$f" ${url} && echo "${release.installSha256}  $f" | ${check} && TILDER_JOIN=${token} sh "$f" ${origin}`;
+};
+
+/**
+ * The same command for PowerShell (ADR 0044), or undefined for a release
+ * with no install.ps1. The script is held as bytes, checked, and run from
+ * memory: nothing lands on disk for another process to swap, and a script
+ * block is not subject to the execution policy that blocks .ps1 files by
+ * default. 3072 is TLS 1.2, which Windows PowerShell 5.1 may not offer
+ * unless asked.
+ */
+export const windowsJoinCommand = (origin: string, token: string, release: Release) => {
+  if (!release.installPs1Sha256) return undefined;
+  const url = `${origin}/dist/${release.version}/install.ps1`;
+  return (
+    `[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; ` +
+    `$b=(New-Object Net.WebClient).DownloadData('${url}'); ` +
+    `if((-join([Security.Cryptography.SHA256]::Create().ComputeHash($b)|%{$_.ToString('x2')})) -ne '${release.installPs1Sha256}'){throw 'tilder: the install script does not match its checksum'}; ` +
+    `$env:TILDER_JOIN='${token}'; & ([scriptblock]::Create([Text.Encoding]::UTF8.GetString($b))) '${origin}'`
+  );
 };
 
 /**

@@ -1,12 +1,11 @@
 // Package service installs the agent as the owner's own service (ADR 0016):
-// a systemd user unit on Linux, a LaunchAgent on macOS. It never needs root
-// and touches only files it names itself.
+// a systemd user unit on Linux, a LaunchAgent on macOS, a Run value and a
+// monitor on Windows (ADR 0044). It never needs root or admin rights and
+// touches only files and values it names itself.
 package service
 
 import (
-	"bytes"
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -129,43 +128,6 @@ func systemdQuote(v string) string {
 	return `"` + r.Replace(v) + `"`
 }
 
-// LaunchdPlist is the LaunchAgent. AbandonProcessGroup is the point: launchd
-// kills a job's process group when it exits, and keeps nothing it did not
-// start alive otherwise.
-func LaunchdPlist(s Spec) string {
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-` + plistMarker + `
-<plist version="1.0">
-<dict>
-`)
-	key := func(k, v string) { b.WriteString("\t<key>" + k + "</key>\n\t<string>" + xmlText(v) + "</string>\n") }
-	flag := func(k string) { b.WriteString("\t<key>" + k + "</key>\n\t<true/>\n") }
-	key("Label", s.Label())
-	b.WriteString("\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>" + xmlText(s.Binary) + "</string>\n\t</array>\n")
-	b.WriteString("\t<key>EnvironmentVariables</key>\n\t<dict>\n")
-	for _, k := range s.envKeys() {
-		b.WriteString("\t\t<key>" + xmlText(k) + "</key>\n\t\t<string>" + xmlText(s.Env[k]) + "</string>\n")
-	}
-	b.WriteString("\t</dict>\n")
-	flag("RunAtLoad")
-	flag("KeepAlive")
-	flag("AbandonProcessGroup")
-	key("ProcessType", "Interactive")
-	b.WriteString("\t<key>ThrottleInterval</key>\n\t<integer>5</integer>\n")
-	key("StandardOutPath", s.LogPath())
-	key("StandardErrorPath", s.LogPath())
-	b.WriteString("</dict>\n</plist>\n")
-	return b.String()
-}
-
-func xmlText(v string) string {
-	var b bytes.Buffer
-	_ = xml.EscapeText(&b, []byte(v))
-	return b.String()
-}
-
 // Runner runs a service manager's command and returns its combined output.
 type Runner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
@@ -177,7 +139,7 @@ func ExecRunner(ctx context.Context, name string, args ...string) ([]byte, error
 // Manager installs, removes and reports one Spec on one OS.
 type Manager struct {
 	Spec  Spec
-	OS    string // "linux" or "darwin"
+	OS    string // "linux", "darwin" or "windows"
 	Run   Runner
 	Clock clock.Clock
 }
@@ -197,6 +159,11 @@ func (m Manager) Install(ctx context.Context) (note string, err error) {
 		return m.keepAfterLogout(ctx), nil
 	case "darwin":
 		return "", m.installLaunchd(ctx)
+	case "windows":
+		if err := m.installRun(ctx); err != nil {
+			return "", err
+		}
+		return "the agent stops when you sign out of Windows", nil
 	default:
 		return "", fmt.Errorf("no service manager for %s", m.OS)
 	}
@@ -228,6 +195,8 @@ func (m Manager) Uninstall(ctx context.Context) error {
 			return err
 		}
 		return removeIfThere(m.Spec.PlistPath())
+	case "windows":
+		return m.uninstallRun(ctx)
 	default:
 		return fmt.Errorf("no service manager for %s", m.OS)
 	}
@@ -264,6 +233,8 @@ func (m Manager) Status(ctx context.Context) (string, error) {
 			return m.Spec.Label() + ": installed, not loaded (it loads at the next login)", nil
 		}
 		return m.Spec.Label() + ": " + launchdState(string(out)) + "\nlog: " + m.Spec.LogPath(), nil
+	case "windows":
+		return m.statusRun(ctx)
 	default:
 		return "", fmt.Errorf("no service manager for %s", m.OS)
 	}
@@ -361,22 +332,6 @@ func (m Manager) systemctl(ctx context.Context, args ...string) ([]byte, error) 
 func notLoaded(out []byte) bool {
 	s := string(out)
 	return strings.Contains(s, "not loaded") || strings.Contains(s, "does not exist") || strings.Contains(s, "No such file")
-}
-
-var launchdPid = regexp.MustCompile(`(?m)^\s*pid = (\d+)`)
-
-func launchdState(print string) string {
-	state := "loaded"
-	for line := range strings.Lines(print) {
-		if t := strings.TrimSpace(line); strings.HasPrefix(t, "state = ") {
-			state = strings.TrimPrefix(t, "state = ")
-			break
-		}
-	}
-	if m := launchdPid.FindStringSubmatch(print); m != nil {
-		state += " (pid " + m[1] + ")"
-	}
-	return state
 }
 
 // writeFile replaces path by rename, so a reader never sees half a file.

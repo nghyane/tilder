@@ -100,6 +100,9 @@ func writeAtomic(path string, body []byte) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	if err := privateDir(dir); err != nil {
+		return fmt.Errorf("keep %s to its owner: %w", dir, err)
+	}
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
