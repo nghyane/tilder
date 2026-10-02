@@ -11,6 +11,7 @@ import {
   type WrapBlob,
 } from '@/model/root-wraps';
 import { sha256, sign } from './crypto';
+import type { DeviceKeys } from './device-keys';
 import { directoryKeyFrom } from './directory-key';
 import type { KeyValue } from './kv';
 import { type PasskeyUnlock, unlockWithPasskey } from './passkey';
@@ -35,7 +36,8 @@ export type Stored = {
   user: string;
   /** Absent on identities made before names were kept. */
   name?: string;
-  device: { publicKey: Uint8Array; privateKey: CryptoKey };
+  /** This browser's device key: its public half; the key signer holds the private one (ADR 0048). */
+  device: { publicKey: Uint8Array };
   cert: { statement: string; signature: Uint8Array };
   wraps: RootWrap[];
   /**
@@ -45,13 +47,15 @@ export type Stored = {
   directoryKey?: CryptoKey;
 };
 
-export const identityOf = (s: Stored): Identity => ({
+export const identityOf = (s: Stored, keys: DeviceKeys): Identity => ({
   rootPublic: s.rootPublic,
   user: s.user,
   name: s.name ?? thisDeviceName(),
   devicePublic: s.device.publicKey,
   cert: s.cert,
-  sign: (text) => sign(s.device.privateKey, text),
+  signHello: (nonce) => keys.signHello(nonce),
+  signOffer: (machineId, sessionId, offerDigest) => keys.signOffer(machineId, sessionId, offerDigest),
+  signTransfer: (t) => keys.signTransfer(t),
 });
 
 /** How the owner opens the root for an admin action. */
@@ -225,6 +229,11 @@ export async function newDeviceSignIn(
     },
     held,
   );
+}
+
+/** Keeps `upload` as the list waiting for the server: one handed over from the console (ADR 0048). */
+export async function keepPending(kv: KeyValue, upload: WrapsUpload): Promise<void> {
+  await kv.set(PENDING, upload);
 }
 
 /** The signed list still waiting for the server, if any. */

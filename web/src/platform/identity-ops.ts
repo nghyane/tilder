@@ -1,0 +1,279 @@
+import type { Identity } from '@/model/owner';
+import type { HeldWraps } from '@/model/root-wraps';
+import type { Imported } from '@/model/signer-identity-ops';
+import type { DeviceKeys } from './device-keys';
+import {
+  addPasskey,
+  finishNewDeviceSignIn,
+  forgetAccount,
+  forgetIdentity,
+  grantDevice,
+  keepHeldWraps,
+  learnDirectoryKey,
+  loadDirectoryKey,
+  loadIdentity,
+  newDeviceSignIn,
+  pendingWraps,
+  prepareIdentity,
+  prepareLinkedDevice,
+  prepareNewRecoveryCode,
+  recoverIdentity,
+  registerMachine,
+  renewCertificate,
+  revokeDevice,
+  type Unlock,
+  unlockMethods,
+  wrapsSent,
+} from './identity';
+import { KEY } from './identity-store';
+import type { KeyValue } from './kv';
+import type { Grant, Offer } from './link';
+import type { PasskeyUnlock } from './passkey';
+import type { SignerKeys } from './signer';
+
+type Signed = { statement: string; signature: Uint8Array };
+
+/**
+ * A passkey the owner just made: in the product, the nonce naming the one
+ * the signer's own button made (the console never holds it); in the in-page
+ * demo, the passkey itself.
+ */
+export type PasskeyRef = { nonce: string } | { made: PasskeyUnlock };
+type WrapsUpload = NonNullable<Awaited<ReturnType<typeof pendingWraps>>>;
+
+/**
+ * The owner's identity as the console uses it (ADR 0048): held by the key
+ * signer, on its own origin, in the product; held by this page only in the
+ * in-page demo. The console never sees the root or the device key, only
+ * what they sign and the public identity.
+ */
+export type IdentityOps = {
+  load(): Promise<Identity | null>;
+  prepare(
+    name: string,
+    now: number,
+  ): Promise<{
+    identity: Identity;
+    recoveryCode: string;
+    addPasskey(passkey: PasskeyRef): Promise<void>;
+    save(): Promise<void>;
+  }>;
+  unlockMethods(): Promise<{ passkeys: number; recovery: boolean }>;
+  renew(how: Unlock, name: string, now: number): Promise<Identity>;
+  addPasskey(how: Unlock, passkey: PasskeyRef): Promise<void>;
+  register(how: Unlock, machine: { id: string; publicKey: string }, now: number): Promise<Signed>;
+  revoke(how: Unlock, current: Signed | undefined, device: Uint8Array, now: number): Promise<Signed>;
+  grant(how: Unlock, offer: Offer, now: number): Promise<Grant>;
+  link(name: string): Promise<{ offer: Offer; adopt(grant: Grant): Promise<Identity> }>;
+  newCode(how: Unlock): Promise<{ recoveryCode: string; save(): Promise<void> }>;
+  finishSignIn(how: Unlock): Promise<void>;
+  forget(): Promise<void>;
+  learnDirectory(how: Unlock): Promise<void>;
+  directoryKey(): Promise<CryptoKey | null>;
+  recover(how: Unlock, name: string, now: number): Promise<Identity>;
+  pendingWraps(): Promise<WrapsUpload | undefined>;
+  wrapsSent(sent: WrapsUpload): Promise<void>;
+  keepHeld(held: HeldWraps): Promise<void>;
+  newDeviceSignIn(): Promise<{ passkey: boolean; recovery: boolean; finish: boolean } | null>;
+};
+
+/** The identity in `kv` of this origin: the in-page demo's, and the signer's own. */
+export function localIdentityOps(
+  kv: KeyValue,
+  keys: DeviceKeys,
+  fetchBlob: (lookup: Uint8Array) => Promise<Uint8Array | null>,
+): IdentityOps {
+  return {
+    load: () => loadIdentity(kv, keys),
+    async prepare(name, now) {
+      const p = await prepareIdentity(keys, name, now);
+      return { ...p, addPasskey: (ref) => p.addPasskey(madeHere(ref)), save: () => p.save(kv) };
+    },
+    unlockMethods: () => unlockMethods(kv),
+    renew: (how, name, now) => renewCertificate(kv, keys, how, name, now),
+    addPasskey: (how, ref) => addPasskey(kv, how, madeHere(ref)),
+    register: (how, machine, now) => registerMachine(kv, how, machine, now),
+    revoke: (how, current, device, now) => revokeDevice(kv, how, current, device, now),
+    grant: (how, offer, now) => grantDevice(kv, how, offer, now),
+    async link(name) {
+      const l = await prepareLinkedDevice(keys, name);
+      return { offer: l.offer, adopt: (grant) => l.adopt(kv, grant) };
+    },
+    newCode: (how) => prepareNewRecoveryCode(kv, how),
+    finishSignIn: (how) => finishNewDeviceSignIn(kv, how),
+    forget: () => forgetIdentity(kv, keys),
+    learnDirectory: (how) => learnDirectoryKey(kv, how),
+    directoryKey: () => loadDirectoryKey(kv),
+    recover: (how, name, now) => recoverIdentity(kv, keys, how, fetchBlob, name, now),
+    pendingWraps: () => pendingWraps(kv),
+    wrapsSent: (sent) => wrapsSent(kv, sent),
+    keepHeld: (held) => keepHeldWraps(kv, held),
+    newDeviceSignIn: () => newDeviceSignIn(kv),
+  };
+}
+
+/** A passkey held by this page: only the in-page demo makes one here. */
+function madeHere(ref: PasskeyRef): PasskeyUnlock {
+  if (!('made' in ref)) throw new Error('That passkey was made by the key signer, not here.');
+  return ref.made;
+}
+
+function nonceOf(ref: PasskeyRef): string {
+  if (!('nonce' in ref)) throw new Error('A passkey is made by the key signer’s own button.');
+  return ref.nonce;
+}
+
+const isBytes = (v: unknown, n: number): v is Uint8Array =>
+  Object.prototype.toString.call(v) === '[object Uint8Array]' && (v as Uint8Array).length === n;
+
+class SignerNonsense extends Error {
+  constructor() {
+    super('The key signer answered nonsense.');
+  }
+}
+
+/**
+ * The identity the key signer holds, asked for by name. `kv` is this
+ * origin's, for what the console keeps of the account (machines, the
+ * workspace cache): forgotten along with the signer's.
+ */
+export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps {
+  const call = signer.identity;
+  // The public identity the signer answers with; its signing is the signer's too.
+  const identity = (v: unknown): Identity => {
+    const i = v as Partial<Identity> | null;
+    if (
+      !i ||
+      !isBytes(i.rootPublic, 32) ||
+      !isBytes(i.devicePublic, 32) ||
+      typeof i.user !== 'string' ||
+      typeof i.name !== 'string' ||
+      typeof i.cert?.statement !== 'string' ||
+      !isBytes(i.cert.signature, 64)
+    )
+      throw new SignerNonsense();
+    return {
+      rootPublic: i.rootPublic,
+      user: i.user,
+      name: i.name,
+      devicePublic: i.devicePublic,
+      cert: { statement: i.cert.statement, signature: i.cert.signature },
+      signHello: (nonce) => signer.signHello(nonce),
+      signOffer: (machineId, sessionId, offerDigest) => signer.signOffer(machineId, sessionId, offerDigest),
+      signTransfer: (t) => signer.signTransfer(t),
+    };
+  };
+  const signed = (v: unknown): Signed => {
+    const s = v as Partial<Signed> | null;
+    if (typeof s?.statement !== 'string' || !isBytes(s.signature, 64)) throw new SignerNonsense();
+    return { statement: s.statement, signature: s.signature };
+  };
+  const token = (v: unknown): string => {
+    const t = (v as { token?: unknown } | null)?.token;
+    if (typeof t !== 'string') throw new SignerNonsense();
+    return t;
+  };
+  const code = (v: unknown): string => {
+    const c = (v as { recoveryCode?: unknown } | null)?.recoveryCode;
+    if (typeof c !== 'string') throw new SignerNonsense();
+    return c;
+  };
+
+  return {
+    load: async () => {
+      const v = await call('id-load');
+      return v === null ? null : identity(v);
+    },
+    async prepare(name, now) {
+      const v = await call('id-prepare', { name, now });
+      const t = token(v);
+      return {
+        identity: identity((v as { identity?: unknown }).identity),
+        recoveryCode: code(v),
+        addPasskey: async (ref) => void (await call('id-prepare-passkey', { token: t, nonce: nonceOf(ref) })),
+        save: async () => void (await call('id-prepare-save', { token: t })),
+      };
+    },
+    async unlockMethods() {
+      const v = (await call('id-unlock-methods')) as { passkeys?: unknown; recovery?: unknown } | null;
+      if (typeof v?.passkeys !== 'number' || typeof v.recovery !== 'boolean') throw new SignerNonsense();
+      return { passkeys: v.passkeys, recovery: v.recovery };
+    },
+    renew: async (how, name, now) => identity(await call('id-renew', { how, name, now })),
+    addPasskey: async (how, ref) => void (await call('id-add-passkey', { how, nonce: nonceOf(ref) })),
+    register: async (how, machine, now) => signed(await call('id-register', { how, machine, now })),
+    revoke: async (how, current, device, now) =>
+      signed(await call('id-revoke', { how, device, now, ...(current ? { current } : {}) })),
+    // Handed on over the link as it is: the new browser's signer checks it.
+    grant: async (how, offer, now) => (await call('id-grant', { how, offer, now })) as Grant,
+    async link(name) {
+      const v = await call('id-link-offer', { name });
+      const t = token(v);
+      const offer = (v as { offer?: Partial<Offer> }).offer;
+      if (!isBytes(offer?.devicePublic, 32) || typeof offer.name !== 'string') throw new SignerNonsense();
+      return {
+        offer: { devicePublic: offer.devicePublic, name: offer.name },
+        adopt: async (grant) => identity(await call('id-link-adopt', { token: t, grant })),
+      };
+    },
+    async newCode(how) {
+      const v = await call('id-new-code', { how });
+      const t = token(v);
+      return { recoveryCode: code(v), save: async () => void (await call('id-new-code-save', { token: t })) };
+    },
+    finishSignIn: async (how) => void (await call('id-finish-signin', { how })),
+    async forget() {
+      await call('id-forget');
+      await forgetAccount(kv);
+    },
+    learnDirectory: async (how) => void (await call('id-learn-directory', { how })),
+    async directoryKey() {
+      const v = await call('id-directory-key');
+      if (v !== null && Object.prototype.toString.call(v) !== '[object CryptoKey]') throw new SignerNonsense();
+      return v as CryptoKey | null;
+    },
+    recover: async (how, name, now) => identity(await call('id-recover', { how, name, now })),
+    async pendingWraps() {
+      const v = (await call('id-pending-wraps')) as WrapsUpload | null;
+      return v ?? undefined;
+    },
+    wrapsSent: async (sent) => void (await call('id-wraps-sent', { statement: sent.statement })),
+    keepHeld: async (held) => void (await call('id-keep-held', { held })),
+    newDeviceSignIn: async () =>
+      (await call('id-new-device-signin')) as { passkey: boolean; recovery: boolean; finish: boolean } | null,
+  };
+}
+
+/**
+ * A browser from before the signer kept the identity (ADR 0048): this
+ * origin's stored identity, and its wraps still waiting for the server, are
+ * handed to the signer once; the copy here is forgotten a week later
+ * (forgetMoved). The signer checks what it is handed and refuses it when it
+ * already holds an identity.
+ */
+export async function moveToSigner(kv: KeyValue, signer: SignerKeys, now = Date.now()): Promise<void> {
+  // As the console stored it before the signer: with the device's private key.
+  const stored = await kv.get<Imported | null>(KEY);
+  if (stored?.v !== 1) return;
+  const pending = (await pendingWraps(kv)) ?? null;
+  await signer.identity('id-import', { stored, pending });
+  await kv.set(MOVED_AT, now);
+}
+
+/** When this browser's identity moved to the signer (ADR 0048): its copy here is kept a while after. */
+const MOVED_AT = 'identity-moved-at';
+/** The owner's call: a console rolled back within a week still finds the owner signed in. */
+const KEEP_MOVED_MS = 7 * 24 * 3600 * 1000;
+
+/**
+ * Forgets this origin's copy of an identity the signer holds, once a week
+ * has passed since it moved (ADR 0048): until then a console rolled back to
+ * one from before still has it, as it had before the move.
+ */
+export async function forgetMoved(kv: KeyValue, now = Date.now()): Promise<void> {
+  const at = await kv.get<number | null>(MOVED_AT);
+  if (typeof at !== 'number' || now - at < KEEP_MOVED_MS) return;
+  await kv.set(KEY, null);
+  await kv.set('pending-root-wraps', null);
+  await kv.set(MOVED_AT, null);
+}

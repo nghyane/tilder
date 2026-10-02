@@ -37,6 +37,20 @@ const prfOf = (credential: PublicKeyCredential): PrfResults =>
 const HINTS = ['client-device', 'hybrid'];
 
 /**
+ * The site passkeys belong to. The key signer (keys.tilder.run, ADR 0048)
+ * uses the console's own, tilder.run: the passkeys owners made on the
+ * console before the signer keep opening their key, and a new device signs
+ * in with one sheet. A browser lets a page name a site it is a subdomain of.
+ */
+let rpId = () => location.hostname;
+
+/** Passkeys belong to `consoleHost` when this page is that host or a subdomain of it (the signer). */
+export function passkeysFor(consoleHost: string) {
+  const here = location.hostname;
+  if (here === consoleHost || here.endsWith(`.${consoleHost}`)) rpId = () => consoleHost;
+}
+
+/**
  * Whether this device has a passkey store the browser can use (Touch ID or
  * the like). False means the browser can only offer a phone or a security
  * key: on a Mac, iCloud Keychain is off, or the browser cannot reach it.
@@ -70,7 +84,7 @@ export async function createPasskey(user: string, existing: string[] = []): Prom
   const credential = (await navigator.credentials
     .create({
       publicKey: {
-        rp: { name: 'Tilder', id: location.hostname },
+        rp: { name: 'Tilder', id: rpId() },
         user: { id: new TextEncoder().encode(user), name, displayName: name },
         excludeCredentials: existing.map((id) => ({
           type: 'public-key' as const,
@@ -110,7 +124,7 @@ export async function createPasskey(user: string, existing: string[] = []): Prom
 export async function unlockWithPasskey(only: string[] = []): Promise<PasskeyUnlock> {
   const credential = (await navigator.credentials.get({
     publicKey: {
-      rpId: location.hostname,
+      rpId: rpId(),
       challenge: random(32),
       userVerification: 'required',
       allowCredentials: only.map((id) => ({

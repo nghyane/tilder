@@ -2,7 +2,8 @@ import { fromBase64Url, toBase64Url } from '@/model/base64';
 import type { Identity } from '@/model/owner';
 import { prfLookupPreimage, recoveryLookupPreimage } from '@/model/root-wraps';
 import { userIdPreimage } from '@/model/statements';
-import { generateSigningKey, idOf, sha256 } from './crypto';
+import { idOf, sha256 } from './crypto';
+import type { DeviceKeys } from './device-keys';
 import { directoryKeyFrom } from './directory-key';
 import { identityOf, KEY, type Stored, signCert, type Unlock, UnlockFailed } from './identity-store';
 import type { KeyValue } from './kv';
@@ -19,6 +20,7 @@ import { type RootWrap, recoverySecret, unwrapRoot } from './root-wrap';
  */
 export async function recoverIdentity(
   kv: KeyValue,
+  keys: DeviceKeys,
   how: Unlock,
   fetchBlob: (lookup: Uint8Array) => Promise<Uint8Array | null>,
   deviceName: string,
@@ -55,7 +57,7 @@ export async function recoverIdentity(
     blob && user === blob.user ? await unwrapRoot(blob.wrap, secret, blob.user, blob.rootPublic, true) : null;
   secret.fill(0);
   if (!blob || !root) throw new UnlockFailed('That does not open the account kept here.');
-  const device = await generateSigningKey();
+  const device = { publicKey: await keys.create() };
   const stored: Stored = {
     v: 1,
     rootPublic: blob.rootPublic,
@@ -69,7 +71,7 @@ export async function recoverIdentity(
   };
   stored.cert = await signCert(root, stored, nowSeconds, deviceName);
   await kv.set(KEY, stored);
-  return identityOf(stored);
+  return identityOf(stored, keys);
 }
 
 /** A kept blob, or null when it is not what queueWraps writes. */

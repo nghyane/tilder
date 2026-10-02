@@ -8,6 +8,11 @@
  */
 export const ACCOUNT_KV = [
   'identity',
+  // A copy kept a week after it moved to the signer (ADR 0048).
+  'identity-moved-at',
+  // The device key's holder (ADR 0048): the signer's own store, or this
+  // origin's in the in-page demo; forgotten through DeviceKeys.forget.
+  'device-key',
   'pending-root-wraps',
   'held-root-wraps',
   'join-secrets',

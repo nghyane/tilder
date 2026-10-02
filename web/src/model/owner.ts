@@ -11,6 +11,19 @@ export type Identity = {
   name: string;
   devicePublic: Uint8Array;
   cert: { statement: string; signature: Uint8Array };
-  /** Signs with the device key. */
-  sign(text: string): Promise<Uint8Array>;
+  /**
+   * What the device key signs, named (ADR 0048): the holder builds each
+   * statement, so nothing asking it can have arbitrary bytes signed.
+   */
+  signHello(nonce: Uint8Array): Promise<Uint8Array>;
+  signOffer(machineId: string, sessionId: Uint8Array, offerDigest: Uint8Array): Promise<Uint8Array>;
+  signTransfer(t: {
+    user: string;
+    src: string;
+    srcPath: Uint8Array;
+    dst: string;
+    dstPath: Uint8Array;
+    notAfter: number;
+    nonce: Uint8Array;
+  }): Promise<{ statement: string; signature: Uint8Array }>;
 };

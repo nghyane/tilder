@@ -6,7 +6,8 @@ import { parseRevocations, type RevocationList, revocationsStatement } from '@/m
 import { recoveryLookupPreimage } from '@/model/root-wraps';
 import { userIdPreimage } from '@/model/statements';
 import { ACCOUNT_KV, ACCOUNT_LOCAL } from './account-state';
-import { generateSigningKey, idOf, sha256, sign, verify } from './crypto';
+import { idOf, sha256, sign, verify } from './crypto';
+import type { DeviceKeys } from './device-keys';
 import { directoryKeyBytes, directoryKeyFrom, importDirectoryKey } from './directory-key';
 import {
   BACKDATE_S,
@@ -23,7 +24,7 @@ import {
 } from './identity-store';
 import type { KeyValue } from './kv';
 import type { Grant, Offer } from './link';
-import { createPasskey } from './passkey';
+import type { PasskeyUnlock } from './passkey';
 import { newRecoveryCode, wrapRoot } from './root-wrap';
 
 export { recoverIdentity } from './identity-recover';
@@ -31,13 +32,13 @@ export type { Unlock } from './identity-store';
 export { keepHeldWraps, newDeviceSignIn, pendingWraps, thisDeviceName, wrapsSent } from './identity-store';
 
 /** This browser's identity, or null on a first visit. */
-export async function loadIdentity(kv: KeyValue): Promise<Identity | null> {
+export async function loadIdentity(kv: KeyValue, keys: DeviceKeys): Promise<Identity | null> {
   const stored = await kv.get<Stored>(KEY);
-  return stored?.v === 1 ? identityOf(stored) : null;
+  return stored?.v === 1 ? identityOf(stored, keys) : null;
 }
 
-/** The passkeys whose wraps this browser holds. */
-const passkeysOf = (stored: Stored) =>
+/** The passkeys whose wraps this browser holds: a new one is made excluding them. */
+export const passkeysOf = (stored: Stored) =>
   stored.wraps.flatMap((w) => (w.kind === 'prf' && w.credentialId ? [w.credentialId] : []));
 
 /**
@@ -49,19 +50,20 @@ const passkeysOf = (stored: Stored) =>
  * returns.
  */
 export async function prepareIdentity(
+  keys: DeviceKeys,
   deviceName: string,
   nowSeconds: number,
 ): Promise<{
   identity: Identity;
   recoveryCode: string;
-  /** Adds a passkey that opens the root too, while the root is still at hand. */
-  addPasskey(): Promise<void>;
+  /** Adds `made`, a passkey made just now, as a way to open the root too, while the root is still at hand. */
+  addPasskey(made: PasskeyUnlock): Promise<void>;
   save(kv: KeyValue): Promise<void>;
 }> {
   const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair;
   const rootPublic = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
   const user = await idOf(userIdPreimage(rootPublic));
-  const device = await generateSigningKey();
+  const device = { publicKey: await keys.create() };
   const notBefore = nowSeconds - BACKDATE_S;
   const statement = deviceCertStatement({
     user,
@@ -91,13 +93,12 @@ export async function prepareIdentity(
   };
   let root: CryptoKey | null = pair.privateKey;
   return {
-    identity: identityOf(stored),
+    identity: identityOf(stored, keys),
     recoveryCode: code,
-    async addPasskey() {
+    async addPasskey(made) {
       if (!root) throw new Error('already saved');
-      const passkey = await createPasskey(user, passkeysOf(stored));
-      stored.wraps.push(await wrapRoot(root, passkey.secret, user, rootPublic, passkey.credentialId));
-      passkey.secret.fill(0);
+      stored.wraps.push(await wrapRoot(root, made.secret, user, rootPublic, made.credentialId));
+      made.secret.fill(0);
     },
     async save(kv) {
       // Stored first: queueWraps records its seq on the stored identity.
@@ -116,23 +117,28 @@ export async function unlockMethods(kv: KeyValue): Promise<{ passkeys: number; r
 }
 
 /** Renews this browser's certificate for another 90 days: an admin action. */
-export async function renewCertificate(kv: KeyValue, how: Unlock, deviceName: string, nowSeconds: number) {
+export async function renewCertificate(
+  kv: KeyValue,
+  keys: DeviceKeys,
+  how: Unlock,
+  deviceName: string,
+  nowSeconds: number,
+) {
   const stored = await kv.get<Stored>(KEY);
   if (!stored) throw new UnlockFailed('This browser has no identity yet.');
   const root = await openRoot(kv, stored, how);
   // The name the certificate binds stays the one this device shows.
-  const cert = await signCert(root, stored, nowSeconds, stored.name ?? deviceName);
-  return identityOf(await updateStored(kv, (current) => ({ ...current, cert })));
+  const cert = await signCert(root, stored, nowSeconds, stored.name ?? deviceName, stored.device.publicKey);
+  return identityOf(await updateStored(kv, (current) => ({ ...current, cert })), keys);
 }
 
-/** Adds a passkey that opens the root: the root is opened once more to wrap it. */
-export async function addPasskey(kv: KeyValue, how: Unlock): Promise<void> {
+/** Adds `made`, a passkey made just now, as a way to open the root: the root is opened once more to wrap it. */
+export async function addPasskey(kv: KeyValue, how: Unlock, made: PasskeyUnlock): Promise<void> {
   const stored = await kv.get<Stored>(KEY);
   if (!stored) throw new UnlockFailed('This browser has no identity yet.');
   const root = await openRoot(kv, stored, how, true);
-  const passkey = await createPasskey(stored.user, passkeysOf(stored));
-  const wrap = await wrapRoot(root, passkey.secret, stored.user, stored.rootPublic, passkey.credentialId);
-  passkey.secret.fill(0);
+  const wrap = await wrapRoot(root, made.secret, stored.user, stored.rootPublic, made.credentialId);
+  made.secret.fill(0);
   // Only the new wrap is added, to the newest copy: another tab may have
   // changed the recovery code while this one waited on the passkey sheet.
   await queueWraps(kv, root, await updateStored(kv, (current) => ({ ...current, wraps: [...current.wraps, wrap] })));
@@ -207,11 +213,14 @@ export async function grantDevice(kv: KeyValue, how: Unlock, offer: Offer, nowSe
  * the link runs so only the public half is offered, and `adopt`, which
  * stores the grant the link checked.
  */
-export async function prepareLinkedDevice(deviceName: string): Promise<{
+export async function prepareLinkedDevice(
+  keys: DeviceKeys,
+  deviceName: string,
+): Promise<{
   offer: Offer;
   adopt(kv: KeyValue, grant: Grant): Promise<Identity>;
 }> {
-  const device = await generateSigningKey();
+  const device = { publicKey: await keys.create() };
   return {
     offer: { devicePublic: device.publicKey, name: deviceName },
     async adopt(kv, grant) {
@@ -221,7 +230,7 @@ export async function prepareLinkedDevice(deviceName: string): Promise<{
       const directoryKey = bytes ? await importDirectoryKey(bytes) : undefined;
       const stored: Stored = { v: 1, ...rest, name: deviceName, device, ...(directoryKey ? { directoryKey } : {}) };
       await kv.set(KEY, stored);
-      return identityOf(stored);
+      return identityOf(stored, keys);
     },
   };
 }
@@ -278,7 +287,13 @@ export async function finishNewDeviceSignIn(kv: KeyValue, how: Unlock): Promise<
  * owner who lost every way to open the root. The machines keep trusting the
  * old root; they must be joined again from a new one.
  */
-export async function forgetIdentity(kv: KeyValue): Promise<void> {
+export async function forgetIdentity(kv: KeyValue, keys: DeviceKeys): Promise<void> {
+  await keys.forget();
+  await forgetAccount(kv);
+}
+
+/** What this origin keeps of the account; the key signer forgets its own. */
+export async function forgetAccount(kv: KeyValue): Promise<void> {
   for (const key of ACCOUNT_KV) await kv.set(key, null);
   try {
     for (const key of ACCOUNT_LOCAL) localStorage.removeItem(key);

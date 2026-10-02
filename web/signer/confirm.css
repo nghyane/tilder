@@ -1,0 +1,80 @@
+:root {
+  color-scheme: dark light;
+  --bg: oklch(0.225 0.008 265);
+  --fg: oklch(0.93 0.008 265);
+  --muted: oklch(0.72 0.008 265);
+  --line: oklch(1 0 0 / 0.12);
+  --primary: oklch(0.54 0.15 275);
+  --brand: oklch(0.76 0.12 275);
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 28px 24px;
+}
+.brand {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 13px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 12px 0 8px;
+  overflow-wrap: anywhere;
+}
+p {
+  color: var(--muted);
+  margin: 8px 0;
+}
+.id code {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0 12px;
+}
+button {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 0;
+  background: var(--primary);
+  color: white;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.quiet {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line);
+}
+.hint {
+  font-size: 13px;
+}
+button.link {
+  height: auto;
+  padding: 0;
+  background: transparent;
+  color: var(--brand);
+  font-weight: 400;
+  font-size: 13px;
+}
