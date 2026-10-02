@@ -10,17 +10,20 @@
 export type UnlockArg = { passkey: true } | { recoveryCode: string };
 
 type Signed = { statement: string; signature: Uint8Array };
+/** A passkey the console just made (its id and PRF output), for the signer to wrap the root under. */
+type MadePasskey = { credentialId: string; secret: Uint8Array };
 type Wrap = { v: 1; kind: 'recovery' | 'prf'; credentialId?: string; salt: string; iv: string; ct: string };
 type WrapBlob = { lookup: Uint8Array; blob: Uint8Array };
 
 export type IdentityRequest =
   | { op: 'id-load' }
   | { op: 'id-prepare'; name: string; now: number }
-  | { op: 'id-prepare-passkey'; token: string; nonce: string }
+  | { op: 'id-prepare-passkey'; token: string; made: MadePasskey }
   | { op: 'id-prepare-save'; token: string }
   | { op: 'id-unlock-methods' }
   | { op: 'id-renew'; how: UnlockArg; name: string; now: number }
-  | { op: 'id-add-passkey'; how: UnlockArg; nonce: string }
+  | { op: 'id-add-passkey'; how: UnlockArg; made: MadePasskey }
+  | { op: 'id-passkey-ids' }
   | { op: 'id-register'; how: UnlockArg; machine: { id: string; publicKey: string }; now: number }
   | { op: 'id-revoke'; how: UnlockArg; current?: Signed; device: Uint8Array; now: number }
   | { op: 'id-grant'; how: UnlockArg; offer: { devicePublic: Uint8Array; name: string }; now: number }
@@ -73,6 +76,11 @@ const text = (v: unknown, max: number): v is string => typeof v === 'string' && 
 const cryptoKey = (v: unknown): v is CryptoKey => Object.prototype.toString.call(v) === '[object CryptoKey]';
 const time = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 const token = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(v);
+
+function made(v: unknown): MadePasskey | null {
+  if (!rec(v) || !(typeof v.credentialId === 'string' && B64.test(v.credentialId))) return null;
+  return bytes(v.secret, 32, 32) ? { credentialId: v.credentialId, secret: v.secret } : null;
+}
 
 function unlock(v: unknown): UnlockArg | null {
   if (!rec(v)) return null;
@@ -166,12 +174,17 @@ export function parseIdentityRequest(r: R): IdentityRequest | null {
       const how = unlock(r.how);
       return how ? { op: r.op, how, name: r.name, now: r.now } : null;
     }
-    case 'id-prepare-passkey':
-      return token(r.token) && token(r.nonce) ? { op: r.op, token: r.token, nonce: r.nonce } : null;
+    case 'id-prepare-passkey': {
+      const m = made(r.made);
+      return token(r.token) && m ? { op: r.op, token: r.token, made: m } : null;
+    }
     case 'id-add-passkey': {
       const how = unlock(r.how);
-      return how && token(r.nonce) ? { op: r.op, how, nonce: r.nonce } : null;
+      const m = made(r.made);
+      return how && m ? { op: r.op, how, made: m } : null;
     }
+    case 'id-passkey-ids':
+      return { op: r.op };
     case 'id-prepare-save':
     case 'id-new-code-save':
       return token(r.token) ? { op: r.op, token: r.token } : null;

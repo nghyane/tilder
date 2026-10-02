@@ -13,7 +13,6 @@ import type { KeyValue } from '@/platform/kv';
 import { PasskeyUnsupported } from '@/platform/passkey';
 import type { Approvals } from './approvals';
 import { identityService } from './identity-service';
-import type { Made } from './made-passkeys';
 
 /**
  * The signer's side of the channel (ADR 0048): it tells the page that framed
@@ -28,7 +27,6 @@ export function serveConsole(
   keys: DeviceKeys,
   approvals: Approvals,
   kv: KeyValue,
-  takeMade: (nonce: string) => Promise<Made>,
 ): () => void {
   let port: MessagePort | null = null;
   // Asking the console for a wrapped root the server keeps (a recovery):
@@ -41,7 +39,7 @@ export function serveConsole(
       callbacks.set(cb, resolve);
       port?.postMessage({ cb, op: 'fetch-blob', lookup } satisfies SignerCallback);
     });
-  const identity = identityService(kv, keys, fetchBlob, takeMade);
+  const identity = identityService(kv, keys, fetchBlob);
 
   const run = async (data: unknown): Promise<SignerReply> => {
     const request = parseRequest(data);

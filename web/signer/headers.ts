@@ -1,9 +1,10 @@
 /**
  * The key signer's headers (ADR 0048), for its own Pages project. Only the
- * consoles it serves may frame its page and its passkey button; nothing may
+ * consoles it serves may frame its page; nothing may
  * frame its confirm window. It loads nothing but its own files and reaches
- * no network: a recovery's blob is fetched by the console. Each page's
- * frame-ancestors is a second policy beside the shared one, so both hold.
+ * no network: a recovery's blob is fetched by the console. The confirm
+ * window's frame-ancestors 'none' is a second policy beside the shared one,
+ * so both hold.
  */
 export function signerHeaders(consoleOrigins: readonly string[]): string {
   if (consoleOrigins.length === 0) throw new Error('the key signer must serve at least one console origin');
@@ -20,6 +21,8 @@ export function signerHeaders(consoleOrigins: readonly string[]): string {
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
+    // Every path, not only the page: Pages answers an unknown one with it.
+    `frame-ancestors ${consoleOrigins.join(' ')}`,
   ].join('; ');
   const framedBy = (paths: string[], ancestors: string) =>
     paths.flatMap((p) => [p, `  Content-Security-Policy: frame-ancestors ${ancestors}`]);
@@ -30,7 +33,6 @@ export function signerHeaders(consoleOrigins: readonly string[]): string {
     '  X-Content-Type-Options: nosniff',
     '  Referrer-Policy: no-referrer',
     '  Permissions-Policy: camera=(), microphone=(), geolocation=()',
-    ...framedBy(['/', '/index.html', '/widget', '/widget.html'], consoleOrigins.join(' ')),
     ...framedBy(['/confirm', '/confirm.html'], "'none'"),
     '/assets/*',
     '  Cache-Control: public, max-age=31536000, immutable',

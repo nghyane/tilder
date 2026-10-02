@@ -13,6 +13,7 @@ import {
   loadDirectoryKey,
   loadIdentity,
   newDeviceSignIn,
+  passkeysOf,
   pendingWraps,
   prepareIdentity,
   prepareLinkedDevice,
@@ -25,7 +26,7 @@ import {
   unlockMethods,
   wrapsSent,
 } from './identity';
-import { KEY } from './identity-store';
+import { KEY, type Stored } from './identity-store';
 import type { KeyValue } from './kv';
 import type { Grant, Offer } from './link';
 import type { PasskeyUnlock } from './passkey';
@@ -33,12 +34,6 @@ import type { SignerKeys } from './signer';
 
 type Signed = { statement: string; signature: Uint8Array };
 
-/**
- * A passkey the owner just made: in the product, the nonce naming the one
- * the signer's own button made (the console never holds it); in the in-page
- * demo, the passkey itself.
- */
-export type PasskeyRef = { nonce: string } | { made: PasskeyUnlock };
 type WrapsUpload = NonNullable<Awaited<ReturnType<typeof pendingWraps>>>;
 
 /**
@@ -55,12 +50,15 @@ export type IdentityOps = {
   ): Promise<{
     identity: Identity;
     recoveryCode: string;
-    addPasskey(passkey: PasskeyRef): Promise<void>;
+    addPasskey(made: PasskeyUnlock): Promise<void>;
     save(): Promise<void>;
   }>;
   unlockMethods(): Promise<{ passkeys: number; recovery: boolean }>;
   renew(how: Unlock, name: string, now: number): Promise<Identity>;
-  addPasskey(how: Unlock, passkey: PasskeyRef): Promise<void>;
+  /** Wraps the root under `made`, a passkey the console just made for the site (ADR 0048). */
+  addPasskey(how: Unlock, made: PasskeyUnlock): Promise<void>;
+  /** The ids of the passkeys that already open the root: a new one is made excluding them. */
+  passkeyIds(): Promise<string[]>;
   register(how: Unlock, machine: { id: string; publicKey: string }, now: number): Promise<Signed>;
   revoke(how: Unlock, current: Signed | undefined, device: Uint8Array, now: number): Promise<Signed>;
   grant(how: Unlock, offer: Offer, now: number): Promise<Grant>;
@@ -87,11 +85,15 @@ export function localIdentityOps(
     load: () => loadIdentity(kv, keys),
     async prepare(name, now) {
       const p = await prepareIdentity(keys, name, now);
-      return { ...p, addPasskey: (ref) => p.addPasskey(madeHere(ref)), save: () => p.save(kv) };
+      return { ...p, save: () => p.save(kv) };
     },
     unlockMethods: () => unlockMethods(kv),
     renew: (how, name, now) => renewCertificate(kv, keys, how, name, now),
-    addPasskey: (how, ref) => addPasskey(kv, how, madeHere(ref)),
+    addPasskey: (how, made) => addPasskey(kv, how, made),
+    passkeyIds: async () => {
+      const stored = await kv.get<Stored>(KEY);
+      return stored ? passkeysOf(stored) : [];
+    },
     register: (how, machine, now) => registerMachine(kv, how, machine, now),
     revoke: (how, current, device, now) => revokeDevice(kv, how, current, device, now),
     grant: (how, offer, now) => grantDevice(kv, how, offer, now),
@@ -110,17 +112,6 @@ export function localIdentityOps(
     keepHeld: (held) => keepHeldWraps(kv, held),
     newDeviceSignIn: () => newDeviceSignIn(kv),
   };
-}
-
-/** A passkey held by this page: only the in-page demo makes one here. */
-function madeHere(ref: PasskeyRef): PasskeyUnlock {
-  if (!('made' in ref)) throw new Error('That passkey was made by the key signer, not here.');
-  return ref.made;
-}
-
-function nonceOf(ref: PasskeyRef): string {
-  if (!('nonce' in ref)) throw new Error('A passkey is made by the key signer’s own button.');
-  return ref.nonce;
 }
 
 const isBytes = (v: unknown, n: number): v is Uint8Array =>
@@ -190,7 +181,7 @@ export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps
       return {
         identity: identity((v as { identity?: unknown }).identity),
         recoveryCode: code(v),
-        addPasskey: async (ref) => void (await call('id-prepare-passkey', { token: t, nonce: nonceOf(ref) })),
+        addPasskey: async (made) => void (await call('id-prepare-passkey', { token: t, made })),
         save: async () => void (await call('id-prepare-save', { token: t })),
       };
     },
@@ -200,7 +191,12 @@ export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps
       return { passkeys: v.passkeys, recovery: v.recovery };
     },
     renew: async (how, name, now) => identity(await call('id-renew', { how, name, now })),
-    addPasskey: async (how, ref) => void (await call('id-add-passkey', { how, nonce: nonceOf(ref) })),
+    addPasskey: async (how, made) => void (await call('id-add-passkey', { how, made })),
+    async passkeyIds() {
+      const v = await call('id-passkey-ids');
+      if (!Array.isArray(v) || !v.every((id) => typeof id === 'string')) throw new SignerNonsense();
+      return v as string[];
+    },
     register: async (how, machine, now) => signed(await call('id-register', { how, machine, now })),
     revoke: async (how, current, device, now) =>
       signed(await call('id-revoke', { how, device, now, ...(current ? { current } : {}) })),

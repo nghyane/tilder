@@ -15,6 +15,7 @@ import {
   loadDirectoryKey,
   loadIdentity,
   newDeviceSignIn,
+  passkeysOf,
   pendingWraps,
   prepareIdentity,
   prepareLinkedDevice,
@@ -26,10 +27,8 @@ import {
   unlockMethods,
   wrapsSent,
 } from '@/platform/identity';
-import { KEY, keepPending, UnlockFailed } from '@/platform/identity-store';
+import { KEY, keepPending, type Stored, UnlockFailed } from '@/platform/identity-store';
 import type { KeyValue } from '@/platform/kv';
-import { type PasskeyUnlock, PasskeyUnsupported } from '@/platform/passkey';
-import type { Made } from './made-passkeys';
 
 /** The public side of this browser's identity: what the console may hold. */
 const pub = (i: Identity) => ({
@@ -56,7 +55,6 @@ export function identityService(
   kv: KeyValue,
   keys: DeviceKeys,
   fetchBlob: (lookup: Uint8Array) => Promise<Uint8Array | null>,
-  takeMade: (nonce: string) => Promise<Made>,
 ) {
   const prepared = new Map<string, Prepared>();
   const linking = new Map<string, Linking>();
@@ -65,14 +63,6 @@ export function identityService(
     const v = map.get(token);
     if (!v) throw new UnlockFailed('That step has expired: start it again.');
     return v;
-  };
-
-  // The passkey the signer's own button made under `nonce`, or why none was.
-  const passkey = async (nonce: string): Promise<PasskeyUnlock> => {
-    const m = await takeMade(nonce);
-    if ('made' in m) return m.made;
-    if (m.error === 'unsupported') throw new PasskeyUnsupported(m.message);
-    throw new Error(m.message || 'No passkey was made. Try again.');
   };
 
   return async function run(r: IdentityRequest): Promise<unknown> {
@@ -89,7 +79,7 @@ export function identityService(
         return { token, recoveryCode: p.recoveryCode, identity: pub(p.identity) };
       }
       case 'id-prepare-passkey':
-        return take(prepared, r.token).addPasskey(await passkey(r.nonce));
+        return take(prepared, r.token).addPasskey(r.made);
       case 'id-prepare-save': {
         await take(prepared, r.token).save(kv);
         prepared.delete(r.token);
@@ -100,7 +90,11 @@ export function identityService(
       case 'id-renew':
         return pub(await renewCertificate(kv, keys, r.how, r.name, r.now));
       case 'id-add-passkey':
-        return addPasskey(kv, r.how, await passkey(r.nonce));
+        return addPasskey(kv, r.how, r.made);
+      case 'id-passkey-ids': {
+        const stored = await kv.get<Stored>(KEY);
+        return stored ? passkeysOf(stored) : [];
+      }
       case 'id-register':
         return registerMachine(kv, r.how, r.machine, r.now);
       case 'id-revoke':

@@ -41,7 +41,6 @@ export default defineConfig(({ command }) => {
         input: {
           main: fileURLToPath(new URL('./signer/index.html', import.meta.url)),
           confirm: fileURLToPath(new URL('./signer/confirm.html', import.meta.url)),
-          widget: fileURLToPath(new URL('./signer/widget.html', import.meta.url)),
         },
       },
     },

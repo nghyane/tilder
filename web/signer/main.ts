@@ -2,7 +2,6 @@ import { localDeviceKeys } from '@/platform/device-keys';
 import { indexedDbKeyValue } from '@/platform/kv';
 import { passkeysFor } from '@/platform/passkey';
 import { approvalsIn } from './approvals';
-import { MADE_CHANNEL, madePasskeys } from './made-passkeys';
 import { serveConsole } from './serve';
 
 /**
@@ -18,8 +17,4 @@ const allowed = (import.meta.env.VITE_TILDER_CONSOLE_ORIGINS ?? '')
 
 // Passkeys belong to the console's site, as they did before the signer.
 for (const origin of allowed) passkeysFor(new URL(origin).hostname);
-// Listening from the start: the button may say before the console asks.
-const takeMade = madePasskeys(new BroadcastChannel(MADE_CHANNEL));
-void indexedDbKeyValue().then((kv) =>
-  serveConsole(window, allowed, localDeviceKeys(kv), approvalsIn(kv), kv, takeMade),
-);
+void indexedDbKeyValue().then((kv) => serveConsole(window, allowed, localDeviceKeys(kv), approvalsIn(kv), kv));
