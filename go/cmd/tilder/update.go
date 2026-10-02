@@ -13,10 +13,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/nghyane/tilder/go/internal/clock"
+	"github.com/nghyane/tilder/go/internal/service"
 	"github.com/nghyane/tilder/go/internal/update"
 	tilderv1 "github.com/nghyane/tilder/go/internal/wire/tilder/v1"
 )
@@ -156,11 +156,6 @@ func autoUpdate(ctx context.Context, server, home string, clk clock.Clock, log *
 
 // updater is this binary's updater, or why it has none.
 func updater(server, home string, clk clock.Clock) (*update.Updater, error) {
-	// A running binary cannot be replaced by link and exec on Windows: the
-	// rename-based update comes with ADR 0044's third phase.
-	if runtime.GOOS == "windows" {
-		return nil, errors.New("self-update is not on windows yet")
-	}
 	root, err := base64.RawURLEncoding.DecodeString(releaseRoot)
 	if err != nil || len(root) != ed25519.PublicKeySize {
 		return nil, update.ErrNoReleaseKey
@@ -241,23 +236,36 @@ func httpBase(server string) (string, error) {
 	return scheme + "://" + u.Host, nil
 }
 
-// underService reports whether systemd or launchd runs this process. A
-// Terminal session on macOS sets XPC_SERVICE_NAME too ("0"), so only our own
-// LaunchAgent's label counts.
+// underService reports whether systemd, launchd or tilder's Windows
+// monitor (ADR 0044) runs this process. A Terminal session on macOS sets
+// XPC_SERVICE_NAME too ("0"), so only our own LaunchAgent's label counts.
 func underService(getenv func(string) string) bool {
-	return getenv("INVOCATION_ID") != "" || strings.HasPrefix(getenv("XPC_SERVICE_NAME"), "run.tilder.")
+	return getenv("INVOCATION_ID") != "" || strings.HasPrefix(getenv("XPC_SERVICE_NAME"), "run.tilder.") ||
+		getenv(service.HiddenEnv) != ""
 }
 
+// errRestart has main exit with restartExit: the Windows monitor starts the
+// agent again only when it exits non-zero, 0 being an agent that meant to
+// stop (ADR 0044).
+var errRestart = errors.New("restarting into the new release")
+
+// restartExit is EX_TEMPFAIL: "try again".
+const restartExit = 75
+
 // restart runs the new binary. Under a service manager, exiting is enough:
-// systemd (Restart=always) and launchd (KeepAlive) start it again. Run by
-// hand or in the background, the process replaces itself.
+// systemd (Restart=always) and launchd (KeepAlive) start it again, and the
+// Windows monitor on a non-zero exit. Run by hand or in the background, the
+// process replaces itself (restart_unix.go, restart_windows.go).
 func restart() error {
 	if underService(os.Getenv) {
+		if runtime.GOOS == "windows" {
+			return errRestart
+		}
 		return nil
 	}
 	binary, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(binary, os.Args, os.Environ()) //nolint:gosec // G204: our own binary, just verified
+	return replaceSelf(binary)
 }

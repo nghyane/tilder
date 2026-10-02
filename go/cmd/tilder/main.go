@@ -54,6 +54,10 @@ func main() {
 		if errors.Is(err, errNoServiceManager) {
 			os.Exit(3)
 		}
+		if errors.Is(err, errRestart) {
+			fmt.Fprintln(os.Stderr, "tilder:", err)
+			os.Exit(restartExit)
+		}
 		fmt.Fprintln(os.Stderr, "tilder:", err)
 		os.Exit(1)
 	}
@@ -154,6 +158,7 @@ func startService(home string) error { return runService(home, []string{"install
 func serve(home string) error {
 	runtime.GOMAXPROCS(procsFor(runtime.GOMAXPROCS(0), os.Getenv("GOMAXPROCS")))
 	if binary, err := thisBinary(); err == nil {
+		update.CleanOld(binary)
 		if back, uerr := update.Started(home, version, binary, maxUnprovenStarts); back {
 			// The service manager starts the previous release in our place.
 			return fmt.Errorf("release %s failed to start %d times; went back to the previous one: %w", version, maxUnprovenStarts, uerr)
@@ -378,22 +383,4 @@ func runService(home string, args []string) error {
 	}
 	fmt.Println(status)
 	return nil
-}
-
-func homeDir() (string, error) {
-	if dir := os.Getenv("TILDER_HOME"); dir != "" {
-		return dir, nil
-	}
-	user, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(user, ".tilder"), nil
-}
-
-func envOr(name, fallback string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	return fallback
 }

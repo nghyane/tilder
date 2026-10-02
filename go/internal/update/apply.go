@@ -123,7 +123,8 @@ func (u *Updater) verified(ctx context.Context, version string) (Release, error)
 // download writes the binary beside the running one, checks it, keeps the
 // running one as .prev, and renames the new one into place: never written
 // in place (macOS kills a signed binary rewritten in place; Linux refuses to
-// write a running one).
+// write a running one; Windows refuses to replace one, so it is renamed
+// away first, swap.go).
 func (u *Updater) download(ctx context.Context, version string, file File) error {
 	body, err := u.open(ctx, "/dist/"+version+"/"+file.Name)
 	if err != nil {
@@ -152,15 +153,17 @@ func (u *Updater) download(ctx context.Context, version string, file File) error
 	if err := os.Chmod(unverified, 0o755); err != nil { //nolint:gosec // G302: an executable
 		return err
 	}
-	prev := u.Binary + ".prev"
-	_ = os.Remove(prev)
-	if err := os.Link(u.Binary, prev); err != nil {
+	if err := keepPrevious(u.Binary, renameRunning); err != nil {
+		_ = os.Remove(unverified)
 		return fmt.Errorf("keep the running binary: %w", err)
 	}
 	if err := writeMarker(u.Home, marker{From: u.Running, To: version}); err != nil {
+		if renameRunning {
+			_ = os.Rename(u.Binary+".prev", u.Binary)
+		}
 		return err
 	}
-	return os.Rename(unverified, u.Binary)
+	return putNew(u.Binary, unverified, renameRunning)
 }
 
 func (u *Updater) open(ctx context.Context, path string) (rc io.ReadCloser, err error) {
@@ -268,5 +271,5 @@ func Proven(home string) { _ = os.Remove(filepath.Join(home, markerFile)) }
 // never reached the server. The service manager then starts the old one.
 func RollBack(home, binary string) error {
 	Proven(home)
-	return os.Rename(binary+".prev", binary)
+	return putBack(binary, renameRunning)
 }

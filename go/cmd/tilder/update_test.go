@@ -19,18 +19,22 @@ import (
 func TestOnlyOurServiceCountsAsAService(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		invocation, xpc string
-		want            bool
+		invocation, xpc, monitor string
+		want                     bool
 	}{
-		{"", "", false},
-		{"", "0", false},
-		{"", "application.com.apple.Terminal.1234", false},
-		{"", "run.tilder.agent", true},
-		{"0123abcd", "", true},
+		{"", "", "", false},
+		{"", "0", "", false},
+		{"", "application.com.apple.Terminal.1234", "", false},
+		{"", "run.tilder.agent", "", true},
+		{"0123abcd", "", "", true},
+		// tilder's Windows monitor (ADR 0044): it starts the new release when
+		// the agent exits non-zero.
+		{"", "", "1", true},
 	} {
-		env := map[string]string{"INVOCATION_ID": tc.invocation, "XPC_SERVICE_NAME": tc.xpc}
+		env := map[string]string{"INVOCATION_ID": tc.invocation, "XPC_SERVICE_NAME": tc.xpc, "TILDER_MONITOR": tc.monitor}
 		if got := underService(func(k string) string { return env[k] }); got != tc.want {
-			t.Errorf("INVOCATION_ID=%q XPC_SERVICE_NAME=%q: under a service %v, want %v", tc.invocation, tc.xpc, got, tc.want)
+			t.Errorf("INVOCATION_ID=%q XPC_SERVICE_NAME=%q TILDER_MONITOR=%q: under a service %v, want %v",
+				tc.invocation, tc.xpc, tc.monitor, got, tc.want)
 		}
 	}
 }
