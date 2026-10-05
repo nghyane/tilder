@@ -1,6 +1,7 @@
 import { fromBase64Url, toBase64Url } from '@/model/base64';
 import { deviceCertStatement, deviceNamePreimage } from '@/model/device-cert';
 import type { Identity } from '@/model/owner';
+import { ShownError } from '@/model/problem';
 import {
   type HeldWraps,
   mergeWraps,
@@ -61,7 +62,8 @@ export const identityOf = (s: Stored, keys: DeviceKeys): Identity => ({
 /** How the owner opens the root for an admin action. */
 export type Unlock = { passkey: true } | { recoveryCode: string };
 
-export class UnlockFailed extends Error {}
+/** Its messages are written for the owner: shown as they are. */
+export class UnlockFailed extends ShownError {}
 
 /**
  * Changes the stored identity from its newest copy (ADR 0042): under the

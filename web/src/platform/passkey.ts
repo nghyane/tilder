@@ -1,4 +1,5 @@
 import { fromBase64Url, toBase64Url } from '@/model/base64';
+import { ShownError } from '@/model/problem';
 import { sha256 } from './crypto';
 
 /**
@@ -11,7 +12,8 @@ import { sha256 } from './crypto';
  */
 export type PasskeyUnlock = { credentialId: string; secret: Uint8Array };
 
-export class PasskeyUnsupported extends Error {}
+/** Says what the passkey could not do, in words the owner can act on: shown as is. */
+export class PasskeyUnsupported extends ShownError {}
 
 /**
  * The name a passkey carries in the password manager (ADR 0038): the account,
@@ -105,7 +107,7 @@ export async function createPasskey(user: string, existing: string[] = []): Prom
     })
     .catch((error: unknown) => {
       if (error instanceof DOMException && error.name === 'InvalidStateError') {
-        throw new Error('This device already keeps a passkey for your account.');
+        throw new ShownError('This device already keeps a passkey for your account.');
       }
       throw error;
     })) as PublicKeyCredential | null;

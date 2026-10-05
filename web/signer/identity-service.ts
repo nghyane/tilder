@@ -27,6 +27,7 @@ import {
   unlockMethods,
   wrapsSent,
 } from '@/platform/identity';
+import { removeMachine } from '@/platform/identity-machines';
 import { KEY, keepPending, type Stored, UnlockFailed } from '@/platform/identity-store';
 import type { KeyValue } from '@/platform/kv';
 
@@ -91,6 +92,8 @@ export function identityService(
         return pub(await renewCertificate(kv, keys, r.how, r.name, r.now));
       case 'id-add-passkey':
         return addPasskey(kv, r.how, r.made);
+      case 'id-remove-machine':
+        return removeMachine(kv, r.how, r.current, r.machine, r.now);
       case 'id-passkey-ids': {
         const stored = await kv.get<Stored>(KEY);
         return stored ? passkeysOf(stored) : [];

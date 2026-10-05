@@ -50,6 +50,9 @@ message Envelope {
     DirectoryAck directory_ack = 36;
     DirectoryConflict directory_conflict = 37;
     MachineSignal machine_signal = 38;
+    RemoveMachine remove_machine = 39;
+    // The root's next list of removed machines (ADR 0052), device → server.
+    RevocationList machine_removals = 40;
   }
 }
 
@@ -149,6 +152,9 @@ message Refused {
     REASON_PROTOCOL = 4;
     // The owner removed this device (ADR 0004): it never gets back in.
     REASON_REVOKED = 5;
+    // A bound of ADR 0043 (new accounts from this address this hour, open
+    // sockets): try again later.
+    REASON_LIMIT = 6;
   }
   Reason reason = 1;
 }
@@ -167,6 +173,9 @@ message MachinesRequest {}
 
 message Machines {
   repeated MachineInfo machines = 1;
+  // The root's list of removed machines (ADR 0052), absent until there is
+  // one: every console checks each registration against it, with the root.
+  RevocationList removals = 2;
 }
 
 message MachineInfo {
@@ -447,4 +456,11 @@ message DirectoryConflict {
     REASON_TOO_LARGE = 2;
   }
   Reason reason = 3;
+}
+
+// RemoveMachine (device → server): forget a machine the owner never confirmed
+// (ADR 0052). The server drops it and refuses its agent; a confirmed machine
+// is removed by the root's signed list instead, and this is ignored for it.
+message RemoveMachine {
+  string machine_id = 1;
 }

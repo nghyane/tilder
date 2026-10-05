@@ -1,3 +1,4 @@
+import { ShownError } from '@/model/problem';
 import { deviceHelloStatement, offerStatement, transferStatement } from '@/model/statements';
 import { generateSigningKey, sign } from './crypto';
 import type { KeyValue } from './kv';
@@ -39,7 +40,7 @@ export async function adoptDeviceKey(kv: KeyValue, held: Held): Promise<void> {
 
 /** The key signs with `held`, or refuses: no key, no signature. */
 async function keysSign(held: Held | null | undefined, text: string): Promise<Uint8Array> {
-  if (!held) throw new Error('This browser has no device key.');
+  if (!held) throw new ShownError('This browser has no device key.');
   return sign(held.privateKey, text);
 }
 
@@ -55,14 +56,14 @@ export function localDeviceKeys(kv: KeyValue): DeviceKeys {
     publicKey: async () => (await held())?.publicKey ?? null,
     async signHello(nonce) {
       const h = await held();
-      if (!h) throw new Error('This browser has no device key.');
+      if (!h) throw new ShownError('This browser has no device key.');
       return keysSign(h, deviceHelloStatement(nonce, h.publicKey));
     },
     signOffer: async (machineId, sessionId, offerDigest) =>
       keysSign(await held(), offerStatement(machineId, sessionId, offerDigest)),
     async signTransfer(t) {
       const h = await held();
-      if (!h) throw new Error('This browser has no device key.');
+      if (!h) throw new ShownError('This browser has no device key.');
       const statement = transferStatement({ ...t, device: h.publicKey });
       return { statement, signature: await keysSign(h, statement) };
     },

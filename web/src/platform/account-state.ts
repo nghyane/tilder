@@ -28,6 +28,8 @@ export const ACCOUNT_LOCAL = [
   'tilder:recent-folders',
   'tilder:recent-places',
   'tilder:pinned-machines',
+  // ADR 0052: the newest list of removed machines checked here.
+  'tilder:machine-removals',
 ] as const;
 
 /** The device's own: kept across accounts. */

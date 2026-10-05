@@ -24,6 +24,7 @@ export type IdentityRequest =
   | { op: 'id-renew'; how: UnlockArg; name: string; now: number }
   | { op: 'id-add-passkey'; how: UnlockArg; made: MadePasskey }
   | { op: 'id-passkey-ids' }
+  | { op: 'id-remove-machine'; how: UnlockArg; current?: Signed; machine: string; now: number }
   | { op: 'id-register'; how: UnlockArg; machine: { id: string; publicKey: string }; now: number }
   | { op: 'id-revoke'; how: UnlockArg; current?: Signed; device: Uint8Array; now: number }
   | { op: 'id-grant'; how: UnlockArg; offer: { devicePublic: Uint8Array; name: string }; now: number }
@@ -185,6 +186,14 @@ export function parseIdentityRequest(r: R): IdentityRequest | null {
     }
     case 'id-passkey-ids':
       return { op: r.op };
+    case 'id-remove-machine': {
+      const how = unlock(r.how);
+      if (!how || !time(r.now) || !(typeof r.machine === 'string' && /^[A-Za-z0-9_-]{22}$/.test(r.machine)))
+        return null;
+      if (r.current === undefined) return { op: r.op, how, machine: r.machine, now: r.now };
+      const current = signed(r.current);
+      return current ? { op: r.op, how, current, machine: r.machine, now: r.now } : null;
+    }
     case 'id-prepare-save':
     case 'id-new-code-save':
       return token(r.token) ? { op: r.op, token: r.token } : null;

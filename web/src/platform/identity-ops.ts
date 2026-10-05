@@ -26,6 +26,7 @@ import {
   unlockMethods,
   wrapsSent,
 } from './identity';
+import { removeMachine } from './identity-machines';
 import { KEY, type Stored } from './identity-store';
 import type { KeyValue } from './kv';
 import type { Grant, Offer } from './link';
@@ -57,6 +58,8 @@ export type IdentityOps = {
   renew(how: Unlock, name: string, now: number): Promise<Identity>;
   /** Wraps the root under `made`, a passkey the console just made for the site (ADR 0048). */
   addPasskey(how: Unlock, made: PasskeyUnlock): Promise<void>;
+  /** The root's next list of removed machines, with `machineId` (ADR 0052): opens the root. */
+  removeMachine(how: Unlock, current: Signed | undefined, machineId: string, now: number): Promise<Signed>;
   /** The ids of the passkeys that already open the root: a new one is made excluding them. */
   passkeyIds(): Promise<string[]>;
   register(how: Unlock, machine: { id: string; publicKey: string }, now: number): Promise<Signed>;
@@ -90,6 +93,7 @@ export function localIdentityOps(
     unlockMethods: () => unlockMethods(kv),
     renew: (how, name, now) => renewCertificate(kv, keys, how, name, now),
     addPasskey: (how, made) => addPasskey(kv, how, made),
+    removeMachine: (how, current, machineId, now) => removeMachine(kv, how, current, machineId, now),
     passkeyIds: async () => {
       const stored = await kv.get<Stored>(KEY);
       return stored ? passkeysOf(stored) : [];
@@ -192,6 +196,8 @@ export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps
     },
     renew: async (how, name, now) => identity(await call('id-renew', { how, name, now })),
     addPasskey: async (how, made) => void (await call('id-add-passkey', { how, made })),
+    removeMachine: async (how, current, machine, now) =>
+      signed(await call('id-remove-machine', { how, machine, now, ...(current ? { current } : {}) })),
     async passkeyIds() {
       const v = await call('id-passkey-ids');
       if (!Array.isArray(v) || !v.every((id) => typeof id === 'string')) throw new SignerNonsense();

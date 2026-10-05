@@ -20,7 +20,10 @@ export type HostInfo = {
  */
 export type Machine = {
   id: string;
+  /** The owner's name for it (ADR 0052), else the name it gives itself. */
   name: string;
+  /** The name it gives itself (its hostname), when the owner named it otherwise. */
+  hostname?: string;
   publicKey: string;
   online: boolean;
   host?: HostInfo;

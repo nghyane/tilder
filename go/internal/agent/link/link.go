@@ -97,6 +97,14 @@ type RevocationStore interface {
 // cannot help, the owner has to open a new join.
 var ErrBadJoin = errors.New("link: the join token is unknown, used or expired")
 
+// ErrRemoved means the rendezvous does not know this machine: the owner
+// removed it (ADR 0052), or it never finished joining. Asking again soon
+// changes nothing; the owner adds it back with a new join command.
+var ErrRemoved = errors.New("link: this machine was removed; run the join command to add it again")
+
+// removedWait is how long a removed machine waits before asking again.
+const removedWait = time.Hour
+
 // Run stays connected until ctx ends, reconnecting with backoff.
 func (l *Link) Run(ctx context.Context) error {
 	l.LoadRevocations()
@@ -114,6 +122,9 @@ func (l *Link) Run(ctx context.Context) error {
 		}
 		wait := backoff(attempt)
 		attempt++
+		if errors.Is(err, ErrRemoved) {
+			wait = removedWait
+		}
 		l.Log.Warn("rendezvous connection ended", slog.Any("error", err), slog.Duration("retry_in", wait))
 		timer := l.Clock.NewTimer(wait, "reconnect")
 		select {
@@ -211,8 +222,11 @@ func (l *Link) hello(ctx context.Context, conn *wsConn) error {
 		return err
 	}
 	if refused := reply.GetRefused(); refused != nil {
-		if refused.GetReason() == tilderv1.Refused_REASON_BAD_JOIN {
+		switch refused.GetReason() {
+		case tilderv1.Refused_REASON_BAD_JOIN:
 			return ErrBadJoin
+		case tilderv1.Refused_REASON_UNKNOWN_MACHINE:
+			return ErrRemoved
 		}
 		return fmt.Errorf("rendezvous refused this machine: %s", refused.GetReason())
 	}

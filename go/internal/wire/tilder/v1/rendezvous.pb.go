@@ -36,6 +36,9 @@ const (
 	Refused_REASON_PROTOCOL        Refused_Reason = 4
 	// The owner removed this device (ADR 0004): it never gets back in.
 	Refused_REASON_REVOKED Refused_Reason = 5
+	// A bound of ADR 0043 (new accounts from this address this hour, open
+	// sockets): try again later.
+	Refused_REASON_LIMIT Refused_Reason = 6
 )
 
 // Enum value maps for Refused_Reason.
@@ -47,6 +50,7 @@ var (
 		3: "REASON_BAD_JOIN",
 		4: "REASON_PROTOCOL",
 		5: "REASON_REVOKED",
+		6: "REASON_LIMIT",
 	}
 	Refused_Reason_value = map[string]int32{
 		"REASON_UNSPECIFIED":     0,
@@ -55,6 +59,7 @@ var (
 		"REASON_BAD_JOIN":        3,
 		"REASON_PROTOCOL":        4,
 		"REASON_REVOKED":         5,
+		"REASON_LIMIT":           6,
 	}
 )
 
@@ -348,6 +353,8 @@ type Envelope struct {
 	//	*Envelope_DirectoryAck
 	//	*Envelope_DirectoryConflict
 	//	*Envelope_MachineSignal
+	//	*Envelope_RemoveMachine
+	//	*Envelope_MachineRemovals
 	Msg           isEnvelope_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -732,6 +739,24 @@ func (x *Envelope) GetMachineSignal() *MachineSignal {
 	return nil
 }
 
+func (x *Envelope) GetRemoveMachine() *RemoveMachine {
+	if x != nil {
+		if x, ok := x.Msg.(*Envelope_RemoveMachine); ok {
+			return x.RemoveMachine
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetMachineRemovals() *RevocationList {
+	if x != nil {
+		if x, ok := x.Msg.(*Envelope_MachineRemovals); ok {
+			return x.MachineRemovals
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Msg interface {
 	isEnvelope_Msg()
 }
@@ -888,6 +913,15 @@ type Envelope_MachineSignal struct {
 	MachineSignal *MachineSignal `protobuf:"bytes,38,opt,name=machine_signal,json=machineSignal,proto3,oneof"`
 }
 
+type Envelope_RemoveMachine struct {
+	RemoveMachine *RemoveMachine `protobuf:"bytes,39,opt,name=remove_machine,json=removeMachine,proto3,oneof"`
+}
+
+type Envelope_MachineRemovals struct {
+	// The root's next list of removed machines (ADR 0052), device → server.
+	MachineRemovals *RevocationList `protobuf:"bytes,40,opt,name=machine_removals,json=machineRemovals,proto3,oneof"`
+}
+
 func (*Envelope_Challenge) isEnvelope_Msg() {}
 
 func (*Envelope_DeviceHello) isEnvelope_Msg() {}
@@ -963,6 +997,10 @@ func (*Envelope_DirectoryAck) isEnvelope_Msg() {}
 func (*Envelope_DirectoryConflict) isEnvelope_Msg() {}
 
 func (*Envelope_MachineSignal) isEnvelope_Msg() {}
+
+func (*Envelope_RemoveMachine) isEnvelope_Msg() {}
+
+func (*Envelope_MachineRemovals) isEnvelope_Msg() {}
 
 // server → client, first frame: sign this nonce to prove your key.
 type Challenge struct {
@@ -1714,8 +1752,11 @@ func (*MachinesRequest) Descriptor() ([]byte, []int) {
 }
 
 type Machines struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Machines      []*MachineInfo         `protobuf:"bytes,1,rep,name=machines,proto3" json:"machines,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Machines []*MachineInfo         `protobuf:"bytes,1,rep,name=machines,proto3" json:"machines,omitempty"`
+	// The root's list of removed machines (ADR 0052), absent until there is
+	// one: every console checks each registration against it, with the root.
+	Removals      *RevocationList `protobuf:"bytes,2,opt,name=removals,proto3" json:"removals,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1753,6 +1794,13 @@ func (*Machines) Descriptor() ([]byte, []int) {
 func (x *Machines) GetMachines() []*MachineInfo {
 	if x != nil {
 		return x.Machines
+	}
+	return nil
+}
+
+func (x *Machines) GetRemovals() *RevocationList {
+	if x != nil {
+		return x.Removals
 	}
 	return nil
 }
@@ -3629,11 +3677,58 @@ func (x *DirectoryConflict) GetReason() DirectoryConflict_Reason {
 	return DirectoryConflict_REASON_UNSPECIFIED
 }
 
+// RemoveMachine (device → server): forget a machine the owner never confirmed
+// (ADR 0052). The server drops it and refuses its agent; a confirmed machine
+// is removed by the root's signed list instead, and this is ignored for it.
+type RemoveMachine struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MachineId     string                 `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveMachine) Reset() {
+	*x = RemoveMachine{}
+	mi := &file_tilder_v1_rendezvous_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveMachine) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveMachine) ProtoMessage() {}
+
+func (x *RemoveMachine) ProtoReflect() protoreflect.Message {
+	mi := &file_tilder_v1_rendezvous_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveMachine.ProtoReflect.Descriptor instead.
+func (*RemoveMachine) Descriptor() ([]byte, []int) {
+	return file_tilder_v1_rendezvous_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *RemoveMachine) GetMachineId() string {
+	if x != nil {
+		return x.MachineId
+	}
+	return ""
+}
+
 var File_tilder_v1_rendezvous_proto protoreflect.FileDescriptor
 
 const file_tilder_v1_rendezvous_proto_rawDesc = "" +
 	"\n" +
-	"\x1atilder/v1/rendezvous.proto\x12\ttilder.v1\x1a\x15tilder/v1/hello.proto\"\xb3\x12\n" +
+	"\x1atilder/v1/rendezvous.proto\x12\ttilder.v1\x1a\x15tilder/v1/hello.proto\"\xbe\x13\n" +
 	"\bEnvelope\x124\n" +
 	"\tchallenge\x18\x01 \x01(\v2\x14.tilder.v1.ChallengeH\x00R\tchallenge\x12;\n" +
 	"\fdevice_hello\x18\x02 \x01(\v2\x16.tilder.v1.DeviceHelloH\x00R\vdeviceHello\x128\n" +
@@ -3678,7 +3773,9 @@ const file_tilder_v1_rendezvous_proto_rawDesc = "" +
 	"\rdirectory_put\x18# \x01(\v2\x17.tilder.v1.DirectoryPutH\x00R\fdirectoryPut\x12>\n" +
 	"\rdirectory_ack\x18$ \x01(\v2\x17.tilder.v1.DirectoryAckH\x00R\fdirectoryAck\x12M\n" +
 	"\x12directory_conflict\x18% \x01(\v2\x1c.tilder.v1.DirectoryConflictH\x00R\x11directoryConflict\x12A\n" +
-	"\x0emachine_signal\x18& \x01(\v2\x18.tilder.v1.MachineSignalH\x00R\rmachineSignalB\x05\n" +
+	"\x0emachine_signal\x18& \x01(\v2\x18.tilder.v1.MachineSignalH\x00R\rmachineSignal\x12A\n" +
+	"\x0eremove_machine\x18' \x01(\v2\x18.tilder.v1.RemoveMachineH\x00R\rremoveMachine\x12F\n" +
+	"\x10machine_removals\x18( \x01(\v2\x19.tilder.v1.RevocationListH\x00R\x0fmachineRemovalsB\x05\n" +
 	"\x03msg\"!\n" +
 	"\tChallenge\x12\x14\n" +
 	"\x05nonce\x18\x01 \x01(\fR\x05nonce\"\xe6\x01\n" +
@@ -3728,25 +3825,27 @@ const file_tilder_v1_rendezvous_proto_rawDesc = "" +
 	"root_wraps\x18\x05 \x01(\v2\x18.tilder.v1.RootWrapsHeldR\trootWraps\"L\n" +
 	"\rRootWrapsHeld\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12)\n" +
-	"\x05blobs\x18\x02 \x03(\v2\x13.tilder.v1.WrapBlobR\x05blobs\"\xd3\x01\n" +
+	"\x05blobs\x18\x02 \x03(\v2\x13.tilder.v1.WrapBlobR\x05blobs\"\xe5\x01\n" +
 	"\aRefused\x121\n" +
-	"\x06reason\x18\x01 \x01(\x0e2\x19.tilder.v1.Refused.ReasonR\x06reason\"\x94\x01\n" +
+	"\x06reason\x18\x01 \x01(\x0e2\x19.tilder.v1.Refused.ReasonR\x06reason\"\xa6\x01\n" +
 	"\x06Reason\x12\x16\n" +
 	"\x12REASON_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14REASON_BAD_SIGNATURE\x10\x01\x12\x1a\n" +
 	"\x16REASON_UNKNOWN_MACHINE\x10\x02\x12\x13\n" +
 	"\x0fREASON_BAD_JOIN\x10\x03\x12\x13\n" +
 	"\x0fREASON_PROTOCOL\x10\x04\x12\x12\n" +
-	"\x0eREASON_REVOKED\x10\x05\"+\n" +
+	"\x0eREASON_REVOKED\x10\x05\x12\x10\n" +
+	"\fREASON_LIMIT\x10\x06\"+\n" +
 	"\bJoinOpen\x12\x1f\n" +
 	"\vsecret_hash\x18\x01 \x01(\fR\n" +
 	"secretHash\"0\n" +
 	"\n" +
 	"JoinOpened\x12\"\n" +
 	"\rexpires_at_ms\x18\x01 \x01(\x03R\vexpiresAtMs\"\x11\n" +
-	"\x0fMachinesRequest\">\n" +
+	"\x0fMachinesRequest\"u\n" +
 	"\bMachines\x122\n" +
-	"\bmachines\x18\x01 \x03(\v2\x16.tilder.v1.MachineInfoR\bmachines\"\x8b\x02\n" +
+	"\bmachines\x18\x01 \x03(\v2\x16.tilder.v1.MachineInfoR\bmachines\x125\n" +
+	"\bremovals\x18\x02 \x01(\v2\x19.tilder.v1.RevocationListR\bremovals\"\x8b\x02\n" +
 	"\vMachineInfo\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12,\n" +
@@ -3900,7 +3999,10 @@ const file_tilder_v1_rendezvous_proto_rawDesc = "" +
 	"\x06Reason\x12\x16\n" +
 	"\x12REASON_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fREASON_CONFLICT\x10\x01\x12\x14\n" +
-	"\x10REASON_TOO_LARGE\x10\x02B?Z=github.com/nghyane/tilder/go/internal/wire/tilder/v1;tilderv1b\x06proto3"
+	"\x10REASON_TOO_LARGE\x10\x02\".\n" +
+	"\rRemoveMachine\x12\x1d\n" +
+	"\n" +
+	"machine_id\x18\x01 \x01(\tR\tmachineIdB?Z=github.com/nghyane/tilder/go/internal/wire/tilder/v1;tilderv1b\x06proto3"
 
 var (
 	file_tilder_v1_rendezvous_proto_rawDescOnce sync.Once
@@ -3915,7 +4017,7 @@ func file_tilder_v1_rendezvous_proto_rawDescGZIP() []byte {
 }
 
 var file_tilder_v1_rendezvous_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_tilder_v1_rendezvous_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_tilder_v1_rendezvous_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_tilder_v1_rendezvous_proto_goTypes = []any{
 	(Refused_Reason)(0),           // 0: tilder.v1.Refused.Reason
 	(MailboxClosed_Reason)(0),     // 1: tilder.v1.MailboxClosed.Reason
@@ -3969,7 +4071,8 @@ var file_tilder_v1_rendezvous_proto_goTypes = []any{
 	(*DirectoryPut)(nil),          // 49: tilder.v1.DirectoryPut
 	(*DirectoryAck)(nil),          // 50: tilder.v1.DirectoryAck
 	(*DirectoryConflict)(nil),     // 51: tilder.v1.DirectoryConflict
-	(*Hello)(nil),                 // 52: tilder.v1.Hello
+	(*RemoveMachine)(nil),         // 52: tilder.v1.RemoveMachine
+	(*Hello)(nil),                 // 53: tilder.v1.Hello
 }
 var file_tilder_v1_rendezvous_proto_depIdxs = []int32{
 	6,  // 0: tilder.v1.Envelope.challenge:type_name -> tilder.v1.Challenge
@@ -4010,34 +4113,37 @@ var file_tilder_v1_rendezvous_proto_depIdxs = []int32{
 	50, // 35: tilder.v1.Envelope.directory_ack:type_name -> tilder.v1.DirectoryAck
 	51, // 36: tilder.v1.Envelope.directory_conflict:type_name -> tilder.v1.DirectoryConflict
 	25, // 37: tilder.v1.Envelope.machine_signal:type_name -> tilder.v1.MachineSignal
-	52, // 38: tilder.v1.DeviceHello.hello:type_name -> tilder.v1.Hello
-	8,  // 39: tilder.v1.DeviceHello.device_certificate:type_name -> tilder.v1.DeviceCertificate
-	8,  // 40: tilder.v1.TransferGrant.device_certificate:type_name -> tilder.v1.DeviceCertificate
-	52, // 41: tilder.v1.AgentHello.hello:type_name -> tilder.v1.Hello
-	11, // 42: tilder.v1.AgentHello.host:type_name -> tilder.v1.HostInfo
-	13, // 43: tilder.v1.Welcome.root_wraps:type_name -> tilder.v1.RootWrapsHeld
-	38, // 44: tilder.v1.RootWrapsHeld.blobs:type_name -> tilder.v1.WrapBlob
-	0,  // 45: tilder.v1.Refused.reason:type_name -> tilder.v1.Refused.Reason
-	19, // 46: tilder.v1.Machines.machines:type_name -> tilder.v1.MachineInfo
-	11, // 47: tilder.v1.MachineInfo.host:type_name -> tilder.v1.HostInfo
-	20, // 48: tilder.v1.MachineInfo.registration:type_name -> tilder.v1.Registration
-	8,  // 49: tilder.v1.SignalDeliver.device_certificate:type_name -> tilder.v1.DeviceCertificate
-	9,  // 50: tilder.v1.SignalDeliver.grant:type_name -> tilder.v1.TransferGrant
-	9,  // 51: tilder.v1.MachineSignal.grant:type_name -> tilder.v1.TransferGrant
-	29, // 52: tilder.v1.Devices.devices:type_name -> tilder.v1.DeviceInfo
-	30, // 53: tilder.v1.Devices.revocations:type_name -> tilder.v1.RevocationList
-	8,  // 54: tilder.v1.DeviceInfo.certificate:type_name -> tilder.v1.DeviceCertificate
-	1,  // 55: tilder.v1.MailboxClosed.reason:type_name -> tilder.v1.MailboxClosed.Reason
-	38, // 56: tilder.v1.RootWrapsPut.blobs:type_name -> tilder.v1.WrapBlob
-	2,  // 57: tilder.v1.UpdateResult.state:type_name -> tilder.v1.UpdateResult.State
-	3,  // 58: tilder.v1.UpdateResult.code:type_name -> tilder.v1.UpdateResult.Code
-	46, // 59: tilder.v1.TurnServers.ice_servers:type_name -> tilder.v1.IceServer
-	4,  // 60: tilder.v1.DirectoryConflict.reason:type_name -> tilder.v1.DirectoryConflict.Reason
-	61, // [61:61] is the sub-list for method output_type
-	61, // [61:61] is the sub-list for method input_type
-	61, // [61:61] is the sub-list for extension type_name
-	61, // [61:61] is the sub-list for extension extendee
-	0,  // [0:61] is the sub-list for field type_name
+	52, // 38: tilder.v1.Envelope.remove_machine:type_name -> tilder.v1.RemoveMachine
+	30, // 39: tilder.v1.Envelope.machine_removals:type_name -> tilder.v1.RevocationList
+	53, // 40: tilder.v1.DeviceHello.hello:type_name -> tilder.v1.Hello
+	8,  // 41: tilder.v1.DeviceHello.device_certificate:type_name -> tilder.v1.DeviceCertificate
+	8,  // 42: tilder.v1.TransferGrant.device_certificate:type_name -> tilder.v1.DeviceCertificate
+	53, // 43: tilder.v1.AgentHello.hello:type_name -> tilder.v1.Hello
+	11, // 44: tilder.v1.AgentHello.host:type_name -> tilder.v1.HostInfo
+	13, // 45: tilder.v1.Welcome.root_wraps:type_name -> tilder.v1.RootWrapsHeld
+	38, // 46: tilder.v1.RootWrapsHeld.blobs:type_name -> tilder.v1.WrapBlob
+	0,  // 47: tilder.v1.Refused.reason:type_name -> tilder.v1.Refused.Reason
+	19, // 48: tilder.v1.Machines.machines:type_name -> tilder.v1.MachineInfo
+	30, // 49: tilder.v1.Machines.removals:type_name -> tilder.v1.RevocationList
+	11, // 50: tilder.v1.MachineInfo.host:type_name -> tilder.v1.HostInfo
+	20, // 51: tilder.v1.MachineInfo.registration:type_name -> tilder.v1.Registration
+	8,  // 52: tilder.v1.SignalDeliver.device_certificate:type_name -> tilder.v1.DeviceCertificate
+	9,  // 53: tilder.v1.SignalDeliver.grant:type_name -> tilder.v1.TransferGrant
+	9,  // 54: tilder.v1.MachineSignal.grant:type_name -> tilder.v1.TransferGrant
+	29, // 55: tilder.v1.Devices.devices:type_name -> tilder.v1.DeviceInfo
+	30, // 56: tilder.v1.Devices.revocations:type_name -> tilder.v1.RevocationList
+	8,  // 57: tilder.v1.DeviceInfo.certificate:type_name -> tilder.v1.DeviceCertificate
+	1,  // 58: tilder.v1.MailboxClosed.reason:type_name -> tilder.v1.MailboxClosed.Reason
+	38, // 59: tilder.v1.RootWrapsPut.blobs:type_name -> tilder.v1.WrapBlob
+	2,  // 60: tilder.v1.UpdateResult.state:type_name -> tilder.v1.UpdateResult.State
+	3,  // 61: tilder.v1.UpdateResult.code:type_name -> tilder.v1.UpdateResult.Code
+	46, // 62: tilder.v1.TurnServers.ice_servers:type_name -> tilder.v1.IceServer
+	4,  // 63: tilder.v1.DirectoryConflict.reason:type_name -> tilder.v1.DirectoryConflict.Reason
+	64, // [64:64] is the sub-list for method output_type
+	64, // [64:64] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_tilder_v1_rendezvous_proto_init() }
@@ -4085,6 +4191,8 @@ func file_tilder_v1_rendezvous_proto_init() {
 		(*Envelope_DirectoryAck)(nil),
 		(*Envelope_DirectoryConflict)(nil),
 		(*Envelope_MachineSignal)(nil),
+		(*Envelope_RemoveMachine)(nil),
+		(*Envelope_MachineRemovals)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -4092,7 +4200,7 @@ func file_tilder_v1_rendezvous_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tilder_v1_rendezvous_proto_rawDesc), len(file_tilder_v1_rendezvous_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   47,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

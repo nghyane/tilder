@@ -1,3 +1,4 @@
+import { ShownError } from '@/model/problem';
 import {
   type ConsoleAnswer,
   SIGNER_CONNECT,
@@ -110,18 +111,18 @@ export async function connectSigner(
       return await call(op, args, SIGN_MS);
     } catch (error) {
       if (!(error instanceof NeedsApproval)) throw error;
-      if (!(await askApproval(error.machines))) throw new Error('Not allowed on this machine from this browser.');
+      if (!(await askApproval(error.machines))) throw new ShownError('Not allowed on this machine from this browser.');
       return call(op, args, SIGN_MS);
     }
   };
   const key = (v: unknown): Uint8Array => {
     if (Object.prototype.toString.call(v) !== '[object Uint8Array]' || (v as Uint8Array).length !== 32)
-      throw new Error('The key signer answered nonsense.');
+      throw new ShownError('The key signer answered nonsense.');
     return v as Uint8Array;
   };
   const signature = (v: unknown): Uint8Array => {
     if (Object.prototype.toString.call(v) !== '[object Uint8Array]' || (v as Uint8Array).length !== 64)
-      throw new Error('The key signer answered nonsense.');
+      throw new ShownError('The key signer answered nonsense.');
     return v as Uint8Array;
   };
   return {
@@ -138,7 +139,7 @@ export async function connectSigner(
       signature(await approved('sign-offer', { machineId, sessionId, offerDigest })),
     async signTransfer(t: TransferIntent) {
       const v = (await approved('sign-transfer', { t })) as { statement?: unknown; signature?: unknown } | null;
-      if (typeof v?.statement !== 'string') throw new Error('The key signer answered nonsense.');
+      if (typeof v?.statement !== 'string') throw new ShownError('The key signer answered nonsense.');
       return { statement: v.statement, signature: signature(v.signature) };
     },
     async forget() {
@@ -236,7 +237,7 @@ function linkOver(port: MessagePort, frame: HTMLIFrameElement, win: Window, fetc
     else if (reply.error === 'unlock-failed') wait.reject(new UnlockFailed(reply.message ?? 'That did not open it.'));
     else if (reply.error === 'passkey-unsupported') wait.reject(new PasskeyUnsupported(reply.message ?? 'no passkey'));
     else if (reply.error === 'failed' && reply.message) wait.reject(new Error(reply.message));
-    else wait.reject(new Error(`The key signer refused: ${reply.error}.`));
+    else wait.reject(new ShownError(`The key signer refused: ${reply.error}.`));
   };
   return {
     call: (op, args, ms) =>

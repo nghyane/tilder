@@ -1,4 +1,5 @@
 import { type Layout, parseLayout } from './layout';
+import { type MachineNames, mergeMachineNames, namesKey, parseMachineNames } from './machine-names';
 
 /**
  * The owner's directory (ADR 0006, 0032): their workspaces, as every device
@@ -43,6 +44,8 @@ export type DirectoryDoc = {
   /** The revision the device meant it to be stored as: the server's rev must match (ADR 0032). */
   rev: number;
   workspaces: WorkspaceEntry[];
+  /** The owner's names for their machines (ADR 0052); absent in a directory from before. */
+  machineNames?: MachineNames;
 };
 
 /** How long a deleted workspace is remembered, so a device away for less does not revive it. */
@@ -144,19 +147,21 @@ export function mergeDirectories(a: DirectoryDoc, b: DirectoryDoc, now: number):
   const workspaces = [...byId.values()]
     .filter((w) => !w.deleted || now - w.updatedAt < TOMBSTONE_MS)
     .sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
-  return { v: 1, rev: Math.max(a.rev, b.rev), workspaces };
+  const machineNames = mergeMachineNames(a.machineNames ?? {}, b.machineNames ?? {});
+  return { v: 1, rev: Math.max(a.rev, b.rev), workspaces, machineNames };
 }
 
 /** The part of a directory every device must agree on: what a write stores for the others. */
 export function sharedForm(doc: DirectoryDoc): string {
-  return JSON.stringify(
+  return JSON.stringify([
+    namesKey(doc.machineNames ?? {}),
     doc.workspaces.map((w) => ({
       id: w.id,
       deleted: w.deleted === true,
       updatedAt: w.updatedAt,
       ...(w.deleted ? {} : { stamps: stampsOf(w), ...Object.fromEntries(FIELDS.map((f) => [f, keyOf(w, f)])) }),
     })),
-  );
+  ]);
 }
 
 /**
@@ -173,7 +178,10 @@ export function stampChanges(
   now: number,
 ): { doc: DirectoryDoc; changed: boolean } {
   const prior = new Map(before.workspaces.map((w) => [w.id, w]));
-  let changed = after.workspaces.length !== before.workspaces.length;
+  // A machine's name carries its own time (renamed): a change is only noticed.
+  let changed =
+    after.workspaces.length !== before.workspaces.length ||
+    namesKey(after.machineNames ?? {}) !== namesKey(before.machineNames ?? {});
   const workspaces = after.workspaces.map((w): WorkspaceEntry => {
     const prev = prior.get(w.id);
     if (w.deleted) {
@@ -241,5 +249,6 @@ export function parseDirectory(json: string): DirectoryDoc | null {
   }
   if (!isRecord(v) || v.v !== 1 || typeof v.rev !== 'number' || !Array.isArray(v.workspaces)) return null;
   const workspaces = v.workspaces.map(parseEntry).filter((w): w is WorkspaceEntry => w !== null);
-  return { v: 1, rev: v.rev, workspaces };
+  const machineNames = v.machineNames === undefined ? undefined : parseMachineNames(v.machineNames);
+  return { v: 1, rev: v.rev, workspaces, ...(machineNames ? { machineNames } : {}) };
 }

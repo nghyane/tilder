@@ -2,6 +2,7 @@ import { fromBase64Url, toBase64Url } from '@/model/base64';
 import { sameTag, scalarFrom, sessionKey, share, tag } from '@/model/cpace';
 import { parseDeviceCert } from '@/model/device-cert';
 import type { LinkCode } from '@/model/link-code';
+import { ShownError } from '@/model/problem';
 import { userIdPreimage } from '@/model/statements';
 import { idOf, verify } from './crypto';
 import type { RootWrap } from './root-wrap';
@@ -49,7 +50,7 @@ export type Grant = {
 };
 
 /** The code did not match on both sides, or a message was not what this protocol sends. */
-export class LinkFailed extends Error {}
+export class LinkFailed extends ShownError {}
 
 const encoder = new TextEncoder();
 const CI = encoder.encode('tilder/link/v1');
