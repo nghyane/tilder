@@ -1,7 +1,10 @@
+import type { RegistrationIntent } from '@/model/owner';
 import { ShownError } from '@/model/problem';
-import { deviceHelloStatement, offerStatement, transferStatement } from '@/model/statements';
-import { generateSigningKey, sign } from './crypto';
+import { deviceRegisterStatement } from '@/model/register';
+import { deviceHelloStatement, machineIdPreimage, offerStatement, transferStatement } from '@/model/statements';
+import { generateSigningKey, idOf, sign } from './crypto';
 import type { KeyValue } from './kv';
+import { joinProofHolds } from './machine-trust';
 
 /** A copy's grant as the device signs it (ADR 0035); the device is the key's own. */
 export type TransferIntent = Omit<Parameters<typeof transferStatement>[0], 'device'>;
@@ -22,6 +25,8 @@ export type DeviceKeys = {
   signOffer(machineId: string, sessionId: Uint8Array, offerDigest: Uint8Array): Promise<Uint8Array>;
   /** The grant's statement and its signature: built by the holder, around its own key. */
   signTransfer(t: TransferIntent): Promise<{ statement: string; signature: Uint8Array }>;
+  /** The registration's statement and signature, around this key; refused unless the join proof holds (ADR 0053). */
+  signRegistration(r: RegistrationIntent): Promise<{ statement: string; signature: Uint8Array }>;
   /** Forgets the key (starting over). */
   forget(): Promise<void>;
 };
@@ -65,6 +70,19 @@ export function localDeviceKeys(kv: KeyValue): DeviceKeys {
       const h = await held();
       if (!h) throw new ShownError('This browser has no device key.');
       const statement = transferStatement({ ...t, device: h.publicKey });
+      return { statement, signature: await keysSign(h, statement) };
+    },
+    async signRegistration(r) {
+      const h = await held();
+      if (!h) throw new ShownError('This browser has no device key.');
+      // Only a machine that ran a join command this browser made: its key,
+      // proved under that secret's private half, and its id its key's own.
+      const holds =
+        r.machineKey.length === 32 &&
+        (await idOf(machineIdPreimage(r.machineKey))) === r.machineId &&
+        (await joinProofHolds(r.auth, r.machineKey, r.proof).catch(() => false));
+      if (!holds) throw new ShownError('That machine did not join with a command from this browser.');
+      const statement = deviceRegisterStatement(r.user, r.machineId, r.machineKey, h.publicKey, r.at);
       return { statement, signature: await keysSign(h, statement) };
     },
     async forget() {

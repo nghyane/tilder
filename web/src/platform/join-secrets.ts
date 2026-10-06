@@ -53,3 +53,15 @@ export async function forgetJoin(kv: KeyValue, machine: Machine, now: number): P
   }
   await kv.set(KEY, kept);
 }
+
+/** The private half of the join secret `machine` proved its key with, or null when none of this browser's. */
+export async function joinSecretFor(kv: KeyValue, machine: Machine, now: number): Promise<Uint8Array | null> {
+  if (!machine.joinProof) return null;
+  const key = fromBase64Url(machine.publicKey);
+  const proof = fromBase64Url(machine.joinProof);
+  for (const s of await load(kv, now)) {
+    const auth = fromBase64Url(s.auth);
+    if (await joinProofHolds(auth, key, proof).catch(() => false)) return auth;
+  }
+  return null;
+}

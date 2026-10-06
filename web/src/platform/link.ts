@@ -1,5 +1,4 @@
 import { fromBase64Url, toBase64Url } from '@/model/base64';
-import { sameTag, scalarFrom, sessionKey, share, tag } from '@/model/cpace';
 import { parseDeviceCert } from '@/model/device-cert';
 import type { LinkCode } from '@/model/link-code';
 import { ShownError } from '@/model/problem';
@@ -157,7 +156,11 @@ export function linkAsNew(mailbox: Mailbox, code: LinkCode, offer: Offer): Promi
   return closingOnFailure(mailbox, () => runNew(mailbox, code, offer));
 }
 
+// CPace and its curve load when a device is added, not with every page.
+const cpace = () => import('@/model/cpace');
+
 async function runNew(mailbox: Mailbox, code: LinkCode, offer: Offer): Promise<Grant> {
+  const { sameTag, scalarFrom, sessionKey, share, tag } = await cpace();
   const sid = mailbox.id;
   const y = scalarFrom(random(64));
   const Ya = share(prs(code), CI, sid, y);
@@ -193,6 +196,7 @@ export function linkAsOwner(
 }
 
 async function runOwner(mailbox: Mailbox, code: LinkCode, decide: (offer: Offer) => Promise<Grant>): Promise<Offer> {
+  const { sameTag, scalarFrom, sessionKey, share, tag } = await cpace();
   const sid = mailbox.id;
   const Ya = await mailbox.next();
   if (Ya.length !== SHARE) throw new LinkFailed('The new device sent something else.');

@@ -1,4 +1,5 @@
 import type { Identity } from '@/model/owner';
+import { ShownError } from '@/model/problem';
 import type { HeldWraps } from '@/model/root-wraps';
 import type { Imported } from '@/model/signer-identity-ops';
 import type { DeviceKeys } from './device-keys';
@@ -20,7 +21,7 @@ import {
   prepareNewRecoveryCode,
   recoverIdentity,
   registerMachine,
-  renewCertificate,
+  renewAndRegister,
   revokeDevice,
   type Unlock,
   unlockMethods,
@@ -32,6 +33,13 @@ import type { KeyValue } from './kv';
 import type { Grant, Offer } from './link';
 import type { PasskeyUnlock } from './passkey';
 import type { SignerKeys } from './signer';
+
+/**
+ * A new recovery code as this page may hold it: the code, with no key
+ * signer (the in-page demo); its token with one, shown in the signer's own
+ * frame and never here (ADR 0054).
+ */
+export type ShownCode = { code: string } | { token: string };
 
 type Signed = { statement: string; signature: Uint8Array };
 
@@ -50,12 +58,22 @@ export type IdentityOps = {
     now: number,
   ): Promise<{
     identity: Identity;
-    recoveryCode: string;
+    shown: ShownCode;
     addPasskey(made: PasskeyUnlock): Promise<void>;
     save(): Promise<void>;
   }>;
   unlockMethods(): Promise<{ passkeys: number; recovery: boolean }>;
-  renew(how: Unlock, name: string, now: number): Promise<Identity>;
+  /**
+   * Renews this browser's certificate; with the same unlock, registers
+   * `machines` as the root's (ADR 0053). An older signer ignores them and
+   * returns none.
+   */
+  renew(
+    how: Unlock,
+    name: string,
+    now: number,
+    machines?: { id: string; publicKey: string }[],
+  ): Promise<{ identity: Identity; registrations: Signed[] }>;
   /** Wraps the root under `made`, a passkey the console just made for the site (ADR 0048). */
   addPasskey(how: Unlock, made: PasskeyUnlock): Promise<void>;
   /** The root's next list of removed machines, with `machineId` (ADR 0052): opens the root. */
@@ -66,7 +84,7 @@ export type IdentityOps = {
   revoke(how: Unlock, current: Signed | undefined, device: Uint8Array, now: number): Promise<Signed>;
   grant(how: Unlock, offer: Offer, now: number): Promise<Grant>;
   link(name: string): Promise<{ offer: Offer; adopt(grant: Grant): Promise<Identity> }>;
-  newCode(how: Unlock): Promise<{ recoveryCode: string; save(): Promise<void> }>;
+  newCode(how: Unlock): Promise<{ shown: ShownCode; save(): Promise<void> }>;
   finishSignIn(how: Unlock): Promise<void>;
   forget(): Promise<void>;
   learnDirectory(how: Unlock): Promise<void>;
@@ -88,10 +106,15 @@ export function localIdentityOps(
     load: () => loadIdentity(kv, keys),
     async prepare(name, now) {
       const p = await prepareIdentity(keys, name, now);
-      return { ...p, save: () => p.save(kv) };
+      return {
+        identity: p.identity,
+        shown: { code: p.recoveryCode },
+        addPasskey: p.addPasskey,
+        save: () => p.save(kv),
+      };
     },
     unlockMethods: () => unlockMethods(kv),
-    renew: (how, name, now) => renewCertificate(kv, keys, how, name, now),
+    renew: (how, name, now, machines = []) => renewAndRegister(kv, keys, how, name, now, machines),
     addPasskey: (how, made) => addPasskey(kv, how, made),
     removeMachine: (how, current, machineId, now) => removeMachine(kv, how, current, machineId, now),
     passkeyIds: async () => {
@@ -105,7 +128,10 @@ export function localIdentityOps(
       const l = await prepareLinkedDevice(keys, name);
       return { offer: l.offer, adopt: (grant) => l.adopt(kv, grant) };
     },
-    newCode: (how) => prepareNewRecoveryCode(kv, how),
+    async newCode(how) {
+      const n = await prepareNewRecoveryCode(kv, how);
+      return { shown: { code: n.recoveryCode }, save: () => n.save() };
+    },
     finishSignIn: (how) => finishNewDeviceSignIn(kv, how),
     forget: () => forgetIdentity(kv, keys),
     learnDirectory: (how) => learnDirectoryKey(kv, how),
@@ -121,7 +147,7 @@ export function localIdentityOps(
 const isBytes = (v: unknown, n: number): v is Uint8Array =>
   Object.prototype.toString.call(v) === '[object Uint8Array]' && (v as Uint8Array).length === n;
 
-class SignerNonsense extends Error {
+class SignerNonsense extends ShownError {
   constructor() {
     super('The key signer answered nonsense.');
   }
@@ -156,6 +182,7 @@ export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps
       signHello: (nonce) => signer.signHello(nonce),
       signOffer: (machineId, sessionId, offerDigest) => signer.signOffer(machineId, sessionId, offerDigest),
       signTransfer: (t) => signer.signTransfer(t),
+      signRegistration: (r) => signer.signRegistration(r),
     };
   };
   const signed = (v: unknown): Signed => {
@@ -168,11 +195,6 @@ export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps
     if (typeof t !== 'string') throw new SignerNonsense();
     return t;
   };
-  const code = (v: unknown): string => {
-    const c = (v as { recoveryCode?: unknown } | null)?.recoveryCode;
-    if (typeof c !== 'string') throw new SignerNonsense();
-    return c;
-  };
 
   return {
     load: async () => {
@@ -180,11 +202,12 @@ export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps
       return v === null ? null : identity(v);
     },
     async prepare(name, now) {
-      const v = await call('id-prepare', { name, now });
+      // The code stays in the signer: shown by its token, in its own frame (ADR 0054).
+      const v = await call('id-prepare', { name, now, hide: true });
       const t = token(v);
       return {
         identity: identity((v as { identity?: unknown }).identity),
-        recoveryCode: code(v),
+        shown: { token: t },
         addPasskey: async (made) => void (await call('id-prepare-passkey', { token: t, made })),
         save: async () => void (await call('id-prepare-save', { token: t })),
       };
@@ -194,7 +217,11 @@ export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps
       if (typeof v?.passkeys !== 'number' || typeof v.recovery !== 'boolean') throw new SignerNonsense();
       return { passkeys: v.passkeys, recovery: v.recovery };
     },
-    renew: async (how, name, now) => identity(await call('id-renew', { how, name, now })),
+    async renew(how, name, now, machines) {
+      const v = await call('id-renew', { how, name, now, ...(machines?.length ? { machines } : {}) });
+      const regs = (v as { registrations?: unknown } | null)?.registrations;
+      return { identity: identity(v), registrations: Array.isArray(regs) ? regs.map(signed) : [] };
+    },
     addPasskey: async (how, made) => void (await call('id-add-passkey', { how, made })),
     removeMachine: async (how, current, machine, now) =>
       signed(await call('id-remove-machine', { how, machine, now, ...(current ? { current } : {}) })),
@@ -219,9 +246,9 @@ export function remoteIdentityOps(signer: SignerKeys, kv: KeyValue): IdentityOps
       };
     },
     async newCode(how) {
-      const v = await call('id-new-code', { how });
+      const v = await call('id-new-code', { how, hide: true });
       const t = token(v);
-      return { recoveryCode: code(v), save: async () => void (await call('id-new-code-save', { token: t })) };
+      return { shown: { token: t }, save: async () => void (await call('id-new-code-save', { token: t })) };
     },
     finishSignIn: async (how) => void (await call('id-finish-signin', { how })),
     async forget() {

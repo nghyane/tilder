@@ -1756,7 +1756,11 @@ type Machines struct {
 	Machines []*MachineInfo         `protobuf:"bytes,1,rep,name=machines,proto3" json:"machines,omitempty"`
 	// The root's list of removed machines (ADR 0052), absent until there is
 	// one: every console checks each registration against it, with the root.
-	Removals      *RevocationList `protobuf:"bytes,2,opt,name=removals,proto3" json:"removals,omitempty"`
+	Removals *RevocationList `protobuf:"bytes,2,opt,name=removals,proto3" json:"removals,omitempty"`
+	// The root's list of removed devices (ADR 0004), absent until there is
+	// one: a registration a device signed (ADR 0053) counts only if that
+	// device is not in it, which each console checks with the root.
+	Revocations   *RevocationList `protobuf:"bytes,3,opt,name=revocations,proto3" json:"revocations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1801,6 +1805,13 @@ func (x *Machines) GetMachines() []*MachineInfo {
 func (x *Machines) GetRemovals() *RevocationList {
 	if x != nil {
 		return x.Removals
+	}
+	return nil
+}
+
+func (x *Machines) GetRevocations() *RevocationList {
+	if x != nil {
+		return x.Revocations
 	}
 	return nil
 }
@@ -1903,13 +1914,18 @@ func (x *MachineInfo) GetRegistration() *Registration {
 }
 
 // device → server: the root registers a machine key (identity.Registration),
-// and the server keeps it beside the machine for every device.
+// and the server keeps it beside the machine for every device. Or, ADR 0053,
+// the device itself does (identity.DeviceRegistration): then, server →
+// device, device_certificate is the certificate of the device that signed
+// it, which the server took from that device's connection, never from what
+// it sent; each console checks it again.
 type Registration struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Statement     string                 `protobuf:"bytes,1,opt,name=statement,proto3" json:"statement,omitempty"`
-	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Statement         string                 `protobuf:"bytes,1,opt,name=statement,proto3" json:"statement,omitempty"`
+	Signature         []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	DeviceCertificate *DeviceCertificate     `protobuf:"bytes,3,opt,name=device_certificate,json=deviceCertificate,proto3" json:"device_certificate,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Registration) Reset() {
@@ -1952,6 +1968,13 @@ func (x *Registration) GetStatement() string {
 func (x *Registration) GetSignature() []byte {
 	if x != nil {
 		return x.Signature
+	}
+	return nil
+}
+
+func (x *Registration) GetDeviceCertificate() *DeviceCertificate {
+	if x != nil {
+		return x.DeviceCertificate
 	}
 	return nil
 }
@@ -3842,10 +3865,11 @@ const file_tilder_v1_rendezvous_proto_rawDesc = "" +
 	"\n" +
 	"JoinOpened\x12\"\n" +
 	"\rexpires_at_ms\x18\x01 \x01(\x03R\vexpiresAtMs\"\x11\n" +
-	"\x0fMachinesRequest\"u\n" +
+	"\x0fMachinesRequest\"\xb2\x01\n" +
 	"\bMachines\x122\n" +
 	"\bmachines\x18\x01 \x03(\v2\x16.tilder.v1.MachineInfoR\bmachines\x125\n" +
-	"\bremovals\x18\x02 \x01(\v2\x19.tilder.v1.RevocationListR\bremovals\"\x8b\x02\n" +
+	"\bremovals\x18\x02 \x01(\v2\x19.tilder.v1.RevocationListR\bremovals\x12;\n" +
+	"\vrevocations\x18\x03 \x01(\v2\x19.tilder.v1.RevocationListR\vrevocations\"\x8b\x02\n" +
 	"\vMachineInfo\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12,\n" +
@@ -3855,10 +3879,11 @@ const file_tilder_v1_rendezvous_proto_rawDesc = "" +
 	"\x04host\x18\x05 \x01(\v2\x13.tilder.v1.HostInfoR\x04host\x12\x1d\n" +
 	"\n" +
 	"join_proof\x18\x06 \x01(\fR\tjoinProof\x12;\n" +
-	"\fregistration\x18\a \x01(\v2\x17.tilder.v1.RegistrationR\fregistration\"J\n" +
+	"\fregistration\x18\a \x01(\v2\x17.tilder.v1.RegistrationR\fregistration\"\x97\x01\n" +
 	"\fRegistration\x12\x1c\n" +
 	"\tstatement\x18\x01 \x01(\tR\tstatement\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\fR\tsignature\"v\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\x12K\n" +
+	"\x12device_certificate\x18\x03 \x01(\v2\x1c.tilder.v1.DeviceCertificateR\x11deviceCertificate\"v\n" +
 	"\x06Signal\x12\x1d\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\tR\tmachineId\x12\x1d\n" +
@@ -4125,25 +4150,27 @@ var file_tilder_v1_rendezvous_proto_depIdxs = []int32{
 	0,  // 47: tilder.v1.Refused.reason:type_name -> tilder.v1.Refused.Reason
 	19, // 48: tilder.v1.Machines.machines:type_name -> tilder.v1.MachineInfo
 	30, // 49: tilder.v1.Machines.removals:type_name -> tilder.v1.RevocationList
-	11, // 50: tilder.v1.MachineInfo.host:type_name -> tilder.v1.HostInfo
-	20, // 51: tilder.v1.MachineInfo.registration:type_name -> tilder.v1.Registration
-	8,  // 52: tilder.v1.SignalDeliver.device_certificate:type_name -> tilder.v1.DeviceCertificate
-	9,  // 53: tilder.v1.SignalDeliver.grant:type_name -> tilder.v1.TransferGrant
-	9,  // 54: tilder.v1.MachineSignal.grant:type_name -> tilder.v1.TransferGrant
-	29, // 55: tilder.v1.Devices.devices:type_name -> tilder.v1.DeviceInfo
-	30, // 56: tilder.v1.Devices.revocations:type_name -> tilder.v1.RevocationList
-	8,  // 57: tilder.v1.DeviceInfo.certificate:type_name -> tilder.v1.DeviceCertificate
-	1,  // 58: tilder.v1.MailboxClosed.reason:type_name -> tilder.v1.MailboxClosed.Reason
-	38, // 59: tilder.v1.RootWrapsPut.blobs:type_name -> tilder.v1.WrapBlob
-	2,  // 60: tilder.v1.UpdateResult.state:type_name -> tilder.v1.UpdateResult.State
-	3,  // 61: tilder.v1.UpdateResult.code:type_name -> tilder.v1.UpdateResult.Code
-	46, // 62: tilder.v1.TurnServers.ice_servers:type_name -> tilder.v1.IceServer
-	4,  // 63: tilder.v1.DirectoryConflict.reason:type_name -> tilder.v1.DirectoryConflict.Reason
-	64, // [64:64] is the sub-list for method output_type
-	64, // [64:64] is the sub-list for method input_type
-	64, // [64:64] is the sub-list for extension type_name
-	64, // [64:64] is the sub-list for extension extendee
-	0,  // [0:64] is the sub-list for field type_name
+	30, // 50: tilder.v1.Machines.revocations:type_name -> tilder.v1.RevocationList
+	11, // 51: tilder.v1.MachineInfo.host:type_name -> tilder.v1.HostInfo
+	20, // 52: tilder.v1.MachineInfo.registration:type_name -> tilder.v1.Registration
+	8,  // 53: tilder.v1.Registration.device_certificate:type_name -> tilder.v1.DeviceCertificate
+	8,  // 54: tilder.v1.SignalDeliver.device_certificate:type_name -> tilder.v1.DeviceCertificate
+	9,  // 55: tilder.v1.SignalDeliver.grant:type_name -> tilder.v1.TransferGrant
+	9,  // 56: tilder.v1.MachineSignal.grant:type_name -> tilder.v1.TransferGrant
+	29, // 57: tilder.v1.Devices.devices:type_name -> tilder.v1.DeviceInfo
+	30, // 58: tilder.v1.Devices.revocations:type_name -> tilder.v1.RevocationList
+	8,  // 59: tilder.v1.DeviceInfo.certificate:type_name -> tilder.v1.DeviceCertificate
+	1,  // 60: tilder.v1.MailboxClosed.reason:type_name -> tilder.v1.MailboxClosed.Reason
+	38, // 61: tilder.v1.RootWrapsPut.blobs:type_name -> tilder.v1.WrapBlob
+	2,  // 62: tilder.v1.UpdateResult.state:type_name -> tilder.v1.UpdateResult.State
+	3,  // 63: tilder.v1.UpdateResult.code:type_name -> tilder.v1.UpdateResult.Code
+	46, // 64: tilder.v1.TurnServers.ice_servers:type_name -> tilder.v1.IceServer
+	4,  // 65: tilder.v1.DirectoryConflict.reason:type_name -> tilder.v1.DirectoryConflict.Reason
+	66, // [66:66] is the sub-list for method output_type
+	66, // [66:66] is the sub-list for method input_type
+	66, // [66:66] is the sub-list for extension type_name
+	66, // [66:66] is the sub-list for extension extendee
+	0,  // [0:66] is the sub-list for field type_name
 }
 
 func init() { file_tilder_v1_rendezvous_proto_init() }

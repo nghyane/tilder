@@ -30,6 +30,7 @@ export const ACCOUNT_LOCAL = [
   'tilder:pinned-machines',
   // ADR 0052: the newest list of removed machines checked here.
   'tilder:machine-removals',
+  'tilder:revocations',
 ] as const;
 
 /** The device's own: kept across accounts. */

@@ -32,6 +32,8 @@ export async function recoverIdentity(
     const got = await unlockWithPasskey();
     secret = got.secret;
     lookup = await sha256(prfLookupPreimage(got.credentialId));
+  } else if ('codeField' in how) {
+    throw new UnlockFailed('Type your recovery code.'); // the signer swaps the field for the code first
   } else {
     const typed = await recoverySecret(how.recoveryCode);
     if (!typed) throw new UnlockFailed('That is not a recovery code: check it for typos.');

@@ -29,7 +29,15 @@ export type Machine = {
   host?: HostInfo;
   /** What the agent proved at join (base64url), for the console holding the secret. */
   joinProof?: string;
-  registration?: { statement: string; signature: Uint8Array };
+  /**
+   * The owner's word that the key is theirs: the root's, or a device's with
+   * that device's certificate (ADR 0053). Checked by confirmMachines.
+   */
+  registration?: {
+    statement: string;
+    signature: Uint8Array;
+    deviceCertificate?: { statement: string; signature: Uint8Array };
+  };
   /**
    * The owner's root registered this machine's key, checked here (ADR 0004).
    * Only a confirmed machine's key is trusted: an unconfirmed one may be a

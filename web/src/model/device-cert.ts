@@ -17,7 +17,7 @@ type DeviceCert = {
 };
 
 const MAX_CERT_LIFETIME_S = 90 * 24 * 3600;
-const CLOCK_SKEW_S = 5 * 60;
+export const CLOCK_SKEW_S = 5 * 60;
 const KEYS = ['user', 'root', 'device', 'name_hash', 'rev_seq', 'not_before', 'not_after'] as const;
 
 export function deviceCertStatement(c: DeviceCert): string {

@@ -176,6 +176,10 @@ message Machines {
   // The root's list of removed machines (ADR 0052), absent until there is
   // one: every console checks each registration against it, with the root.
   RevocationList removals = 2;
+  // The root's list of removed devices (ADR 0004), absent until there is
+  // one: a registration a device signed (ADR 0053) counts only if that
+  // device is not in it, which each console checks with the root.
+  RevocationList revocations = 3;
 }
 
 message MachineInfo {
@@ -194,10 +198,15 @@ message MachineInfo {
 }
 
 // device → server: the root registers a machine key (identity.Registration),
-// and the server keeps it beside the machine for every device.
+// and the server keeps it beside the machine for every device. Or, ADR 0053,
+// the device itself does (identity.DeviceRegistration): then, server →
+// device, device_certificate is the certificate of the device that signed
+// it, which the server took from that device's connection, never from what
+// it sent; each console checks it again.
 message Registration {
   string statement = 1;
   bytes signature = 2;
+  DeviceCertificate device_certificate = 3;
 }
 
 // device → server → agent: a signed SDP offer (identity statement `sdp`).

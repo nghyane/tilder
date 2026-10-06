@@ -1,9 +1,15 @@
 name: test
 
 # The published code on the three systems it runs on (ADR 0044, 0045).
+# Pull requests too, from forks included: `pull_request` runs them with a
+# read-only token and no secrets.
 on:
   push:
+  pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   go:

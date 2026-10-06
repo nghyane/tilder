@@ -4,8 +4,8 @@
  * stays removed as of a time: one registered after it (added back) counts
  * again, one registered at or before it does not.
  */
-export type RemovedMachine = { id: string; at: number };
-export type MachineRemovals = { user: string; seq: number; machines: RemovedMachine[]; at: number };
+type RemovedMachine = { id: string; at: number };
+type MachineRemovals = { user: string; seq: number; machines: RemovedMachine[]; at: number };
 
 const MACHINE_ID = /^[A-Za-z0-9_-]{22}$/;
 /** As Go bounds it: a longer list is refused before it is read. */

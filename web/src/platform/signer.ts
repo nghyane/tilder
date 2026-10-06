@@ -1,3 +1,4 @@
+import type { RegistrationIntent } from '@/model/owner';
 import { ShownError } from '@/model/problem';
 import {
   type ConsoleAnswer,
@@ -142,6 +143,16 @@ export async function connectSigner(
       if (typeof v?.statement !== 'string') throw new ShownError('The key signer answered nonsense.');
       return { statement: v.statement, signature: signature(v.signature) };
     },
+    // Behind approvals, as a shell is: the secret its proof is checked
+    // under is the console's own (ADR 0053).
+    async signRegistration(r: RegistrationIntent) {
+      const v = (await approved('sign-registration', { r })) as {
+        statement?: unknown;
+        signature?: unknown;
+      } | null;
+      if (typeof v?.statement !== 'string') throw new ShownError('The key signer answered nonsense.');
+      return { statement: v.statement, signature: signature(v.signature) };
+    },
     async forget() {
       await call('forget');
     },
@@ -233,11 +244,7 @@ function linkOver(port: MessagePort, frame: HTMLIFrameElement, win: Window, fetc
     if (reply.ok) wait.resolve(reply.value);
     else if (reply.error === 'needs-approval' && Array.isArray(reply.machines))
       wait.reject(new NeedsApproval(reply.machines.filter((m): m is string => typeof m === 'string')));
-    // The identity code's own errors, as the console showed them before it moved.
-    else if (reply.error === 'unlock-failed') wait.reject(new UnlockFailed(reply.message ?? 'That did not open it.'));
-    else if (reply.error === 'passkey-unsupported') wait.reject(new PasskeyUnsupported(reply.message ?? 'no passkey'));
-    else if (reply.error === 'failed' && reply.message) wait.reject(new Error(reply.message));
-    else wait.reject(new ShownError(`The key signer refused: ${reply.error}.`));
+    else wait.reject(errorOf(reply));
   };
   return {
     call: (op, args, ms) =>
@@ -260,4 +267,14 @@ function linkOver(port: MessagePort, frame: HTMLIFrameElement, win: Window, fetc
       frame.remove();
     },
   };
+}
+
+/** A refusal from the signer as the console throws it: the identity code's own errors, as the console showed them before it moved. */
+export function errorOf(reply: { error: string; message?: string; shown?: boolean }): Error {
+  if (reply.error === 'unlock-failed') return new UnlockFailed(reply.message ?? 'That did not open it.');
+  if (reply.error === 'passkey-unsupported') return new PasskeyUnsupported(reply.message ?? 'no passkey');
+  if (reply.error === 'failed' && reply.message)
+    return reply.shown === true ? new ShownError(reply.message) : new Error(reply.message);
+  // A code, not words for the owner: they read a fixed sentence, the code goes to the log.
+  return new Error(`the key signer refused: ${reply.error}`);
 }

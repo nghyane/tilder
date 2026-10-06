@@ -124,12 +124,35 @@ export async function renewCertificate(
   deviceName: string,
   nowSeconds: number,
 ) {
+  return (await renewAndRegister(kv, keys, how, deviceName, nowSeconds, [])).identity;
+}
+
+/**
+ * Renews the certificate, and with the root open for it registers
+ * `machines` as the root's (ADR 0053): machines a device registered, whose
+ * registration would otherwise end with that device's certificate. One
+ * unlock for both.
+ */
+export async function renewAndRegister(
+  kv: KeyValue,
+  keys: DeviceKeys,
+  how: Unlock,
+  deviceName: string,
+  nowSeconds: number,
+  machines: { id: string; publicKey: string }[],
+) {
   const stored = await kv.get<Stored>(KEY);
   if (!stored) throw new UnlockFailed('This browser has no identity yet.');
   const root = await openRoot(kv, stored, how);
   // The name the certificate binds stays the one this device shows.
   const cert = await signCert(root, stored, nowSeconds, stored.name ?? deviceName, stored.device.publicKey);
-  return identityOf(await updateStored(kv, (current) => ({ ...current, cert })), keys);
+  const registrations = await Promise.all(
+    machines.map(async (m) => {
+      const statement = registerStatement(stored.user, m.id, fromBase64Url(m.publicKey), nowSeconds);
+      return { statement, signature: await sign(root, statement) };
+    }),
+  );
+  return { identity: identityOf(await updateStored(kv, (current) => ({ ...current, cert })), keys), registrations };
 }
 
 /** Adds `made`, a passkey made just now, as a way to open the root: the root is opened once more to wrap it. */

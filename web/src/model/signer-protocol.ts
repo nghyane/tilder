@@ -1,3 +1,4 @@
+import type { RegistrationIntent } from './owner';
 import { type IdentityRequest, parseIdentityRequest } from './signer-identity-ops';
 
 /**
@@ -32,11 +33,13 @@ type DeviceRequest =
   | { id: number; op: 'policy' }
   | { id: number; op: 'sign-hello'; nonce: Uint8Array }
   | { id: number; op: 'sign-offer'; machineId: string; sessionId: Uint8Array; offerDigest: Uint8Array }
-  | { id: number; op: 'sign-transfer'; t: Transfer };
+  | { id: number; op: 'sign-transfer'; t: Transfer }
+  | { id: number; op: 'sign-registration'; r: RegistrationIntent };
 
 export type SignerReply =
   | { id: number; ok: true; value: unknown }
-  | { id: number; ok: false; error: string; machines?: string[]; message?: string };
+  /** `shown`: the message was written for the owner (ShownError); an older console ignores it. */
+  | { id: number; ok: false; error: string; machines?: string[]; message?: string; shown?: boolean };
 
 /**
  * The signer asking the console for something only the console can reach
@@ -62,6 +65,15 @@ const bytes = (v: unknown, min: number, max: number): v is Uint8Array =>
   (v as Uint8Array).length >= min &&
   (v as Uint8Array).length <= max;
 const id = (v: unknown): v is string => typeof v === 'string' && ID.test(v);
+
+function registration(v: unknown): RegistrationIntent | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const g = v as Record<string, unknown>;
+  if (!id(g.user) || !id(g.machineId) || !bytes(g.machineKey, 32, 32)) return null;
+  if (!bytes(g.auth, 16, 16) || !bytes(g.proof, 32, 32)) return null;
+  if (typeof g.at !== 'number' || !Number.isSafeInteger(g.at) || g.at < 0) return null;
+  return { user: g.user, machineId: g.machineId, machineKey: g.machineKey, at: g.at, auth: g.auth, proof: g.proof };
+}
 
 function transfer(v: unknown): Transfer | null {
   if (typeof v !== 'object' || v === null) return null;
@@ -108,6 +120,10 @@ export function parseRequest(data: unknown): SignerRequest | null {
     case 'sign-transfer': {
       const t = transfer(r.t);
       return t ? { id: rid, op: 'sign-transfer', t } : null;
+    }
+    case 'sign-registration': {
+      const g = registration(r.r);
+      return g ? { id: rid, op: 'sign-registration', r: g } : null;
     }
     default:
       return null;

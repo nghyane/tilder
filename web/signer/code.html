@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recovery code — tilder keys</title>
+    <link rel="stylesheet" href="./code.css" />
+  </head>
+  <body>
+    <input
+      id="code"
+      hidden
+      aria-label="Recovery code"
+      autocomplete="off"
+      autocapitalize="characters"
+      spellcheck="false"
+      placeholder="XXXX-XXXX-…"
+    />
+    <section id="show" hidden>
+      <ol id="groups" aria-label="Recovery code"></ol>
+      <div class="actions">
+        <button type="button" id="copy">Copy</button>
+        <button type="button" id="download">Download .txt</button>
+        <button type="button" id="print">Print</button>
+      </div>
+    </section>
+    <script type="module" src="./code.ts"></script>
+  </body>
+</html>

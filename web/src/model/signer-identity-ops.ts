@@ -7,7 +7,8 @@
  */
 
 /** How the owner opens the root: a passkey, or the recovery code (still typed into the console; ADR 0048 says what is left). */
-export type UnlockArg = { passkey: true } | { recoveryCode: string };
+/** `codeField`: the code was typed into the signer's own field (ADR 0054); the console names it. */
+export type UnlockArg = { passkey: true } | { recoveryCode: string } | { codeField: string };
 
 type Signed = { statement: string; signature: Uint8Array };
 /** A passkey the console just made (its id and PRF output), for the signer to wrap the root under. */
@@ -17,11 +18,12 @@ type WrapBlob = { lookup: Uint8Array; blob: Uint8Array };
 
 export type IdentityRequest =
   | { op: 'id-load' }
-  | { op: 'id-prepare'; name: string; now: number }
+  /** `hide`: answer with the token only; the code is shown in the signer's own frame (ADR 0054). */
+  | { op: 'id-prepare'; name: string; now: number; hide?: true }
   | { op: 'id-prepare-passkey'; token: string; made: MadePasskey }
   | { op: 'id-prepare-save'; token: string }
   | { op: 'id-unlock-methods' }
-  | { op: 'id-renew'; how: UnlockArg; name: string; now: number }
+  | { op: 'id-renew'; how: UnlockArg; name: string; now: number; machines?: { id: string; publicKey: string }[] }
   | { op: 'id-add-passkey'; how: UnlockArg; made: MadePasskey }
   | { op: 'id-passkey-ids' }
   | { op: 'id-remove-machine'; how: UnlockArg; current?: Signed; machine: string; now: number }
@@ -34,7 +36,7 @@ export type IdentityRequest =
       token: string;
       grant: { rootPublic: Uint8Array; user: string; cert: Signed; wraps: Wrap[]; directoryKey?: Uint8Array };
     }
-  | { op: 'id-new-code'; how: UnlockArg }
+  | { op: 'id-new-code'; how: UnlockArg; hide?: true }
   | { op: 'id-new-code-save'; token: string }
   | { op: 'id-finish-signin'; how: UnlockArg }
   | { op: 'id-forget' }
@@ -86,6 +88,8 @@ function made(v: unknown): MadePasskey | null {
 function unlock(v: unknown): UnlockArg | null {
   if (!rec(v)) return null;
   if (v.passkey === true) return { passkey: true };
+  if (typeof v.codeField === 'string')
+    return /^[A-Za-z0-9_-]{16,64}$/.test(v.codeField) ? { codeField: v.codeField } : null;
   return text(v.recoveryCode, 200) ? { recoveryCode: v.recoveryCode } : null;
 }
 
@@ -158,6 +162,15 @@ function pending(v: unknown): Pending | null {
   return s && b ? { ...s, blobs: b } : null;
 }
 
+/** As many machines as an account may have (MaxMachines): more is no list a console sends. */
+const MAX_REGISTER = 4096;
+
+function machineArg(m: unknown): { id: string; publicKey: string } | null {
+  if (!rec(m) || !(typeof m.id === 'string' && ID.test(m.id))) return null;
+  if (!(typeof m.publicKey === 'string' && B64.test(m.publicKey))) return null;
+  return { id: m.id, publicKey: m.publicKey };
+}
+
 /** The identity request `r` is, in its shape; null when it is not one. */
 export function parseIdentityRequest(r: R): IdentityRequest | null {
   switch (r.op) {
@@ -171,7 +184,8 @@ export function parseIdentityRequest(r: R): IdentityRequest | null {
     case 'id-prepare':
     case 'id-recover': {
       if (!text(r.name, 100) || !time(r.now)) return null;
-      if (r.op === 'id-prepare') return { op: r.op, name: r.name, now: r.now };
+      if (r.op === 'id-prepare')
+        return { op: r.op, name: r.name, now: r.now, ...(r.hide === true ? { hide: true as const } : {}) };
       const how = unlock(r.how);
       return how ? { op: r.op, how, name: r.name, now: r.now } : null;
     }
@@ -199,9 +213,18 @@ export function parseIdentityRequest(r: R): IdentityRequest | null {
       return token(r.token) ? { op: r.op, token: r.token } : null;
     case 'id-renew': {
       const how = unlock(r.how);
-      return how && text(r.name, 100) && time(r.now) ? { op: r.op, how, name: r.name, now: r.now } : null;
+      if (!how || !text(r.name, 100) || !time(r.now)) return null;
+      if (r.machines === undefined) return { op: r.op, how, name: r.name, now: r.now };
+      // The machines to register as the root's with the same unlock (ADR 0053).
+      if (!Array.isArray(r.machines) || r.machines.length > MAX_REGISTER) return null;
+      const machines = r.machines.map(machineArg);
+      if (machines.some((m) => m === null)) return null;
+      return { op: r.op, how, name: r.name, now: r.now, machines: machines as { id: string; publicKey: string }[] };
     }
-    case 'id-new-code':
+    case 'id-new-code': {
+      const how = unlock(r.how);
+      return how ? { op: r.op, how, ...(r.hide === true ? { hide: true as const } : {}) } : null;
+    }
     case 'id-finish-signin':
     case 'id-learn-directory': {
       const how = unlock(r.how);
@@ -209,10 +232,8 @@ export function parseIdentityRequest(r: R): IdentityRequest | null {
     }
     case 'id-register': {
       const how = unlock(r.how);
-      const m = r.machine;
-      if (!how || !time(r.now) || !rec(m) || !(typeof m.id === 'string' && ID.test(m.id))) return null;
-      if (!(typeof m.publicKey === 'string' && B64.test(m.publicKey))) return null;
-      return { op: r.op, how, machine: { id: m.id, publicKey: m.publicKey }, now: r.now };
+      const machine = machineArg(r.machine);
+      return how && time(r.now) && machine ? { op: r.op, how, machine, now: r.now } : null;
     }
     case 'id-revoke': {
       const how = unlock(r.how);

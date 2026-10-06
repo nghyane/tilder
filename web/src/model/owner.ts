@@ -26,4 +26,19 @@ export type Identity = {
     notAfter: number;
     nonce: Uint8Array;
   }): Promise<{ statement: string; signature: Uint8Array }>;
+  /**
+   * Registers a machine with the device key (ADR 0053): only one that proved
+   * its key with a join command this browser made (`auth` is that secret's
+   * private half, `proof` the agent's), which the holder checks itself.
+   */
+  signRegistration(r: RegistrationIntent): Promise<{ statement: string; signature: Uint8Array }>;
+};
+
+export type RegistrationIntent = {
+  user: string;
+  machineId: string;
+  machineKey: Uint8Array;
+  at: number;
+  auth: Uint8Array;
+  proof: Uint8Array;
 };

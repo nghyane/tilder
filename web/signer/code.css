@@ -1,0 +1,64 @@
+/* The console's own look, as the console measured it (code.ts applies the
+   values it passes): these must read as part of the page around them. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+}
+input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid #888;
+  border-radius: 6px;
+  outline: none;
+  text-transform: uppercase;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+#show {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#groups {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 16px;
+  letter-spacing: 0.05em;
+}
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 10px;
+  font-family: system-ui, sans-serif;
+}
+.actions button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  opacity: 0.75;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.actions button:hover {
+  opacity: 1;
+}
+@media print {
+  .actions {
+    display: none;
+  }
+  #groups {
+    color: #000;
+  }
+}

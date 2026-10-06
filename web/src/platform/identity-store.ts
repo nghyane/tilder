@@ -57,10 +57,15 @@ export const identityOf = (s: Stored, keys: DeviceKeys): Identity => ({
   signHello: (nonce) => keys.signHello(nonce),
   signOffer: (machineId, sessionId, offerDigest) => keys.signOffer(machineId, sessionId, offerDigest),
   signTransfer: (t) => keys.signTransfer(t),
+  signRegistration: (r) => keys.signRegistration(r),
 });
 
-/** How the owner opens the root for an admin action. */
-export type Unlock = { passkey: true } | { recoveryCode: string };
+/**
+ * How the owner opens the root for an admin action. `codeField`: the code
+ * was typed into the key signer's own field (ADR 0054), which only the
+ * signer reads; the console names the field.
+ */
+export type Unlock = { passkey: true } | { recoveryCode: string } | { codeField: string };
 
 /** Its messages are written for the owner: shown as they are. */
 export class UnlockFailed extends ShownError {}
@@ -97,6 +102,10 @@ export async function openRoot(kv: KeyValue, stored: Stored, how: Unlock, extrac
     const got: PasskeyUnlock = await unlockWithPasskey(ids);
     secret = got.secret;
     wrap = stored.wraps.find((w) => w.kind === 'prf' && w.credentialId === got.credentialId);
+  } else if ('codeField' in how) {
+    // The signer swaps the field for what was typed before this runs; here
+    // there is no field to read.
+    throw new UnlockFailed('Type your recovery code.');
   } else {
     secret = await recoverySecret(how.recoveryCode);
     wrap = stored.wraps.find((w) => w.kind === 'recovery');

@@ -22,14 +22,15 @@ import {
   prepareNewRecoveryCode,
   recoverIdentity,
   registerMachine,
-  renewCertificate,
+  renewAndRegister,
   revokeDevice,
   unlockMethods,
   wrapsSent,
 } from '@/platform/identity';
 import { removeMachine } from '@/platform/identity-machines';
-import { KEY, keepPending, type Stored, UnlockFailed } from '@/platform/identity-store';
+import { KEY, keepPending, type Stored, type Unlock, UnlockFailed } from '@/platform/identity-store';
 import type { KeyValue } from '@/platform/kv';
+import type { CodeFields } from './code-fields';
 
 /** The public side of this browser's identity: what the console may hold. */
 const pub = (i: Identity) => ({
@@ -52,10 +53,27 @@ type NewCode = Awaited<ReturnType<typeof prepareNewRecoveryCode>>;
  * (a new account before its code is saved, a link, a new code) is kept
  * here by a random token; the console holds only the token.
  */
+/**
+ * When the signer stops taking a code typed in the console, and stops giving
+ * one to a console that does not ask it hidden (ADR 0054): a week after the
+ * consoles that never do either shipped. A console tab older than that is
+ * told to reload.
+ */
+export const LEGACY_UNTIL = Date.UTC(2026, 9, 14);
+
+/** A request whose unlock is a passkey or the code itself: a named field taken. */
+type Resolved = IdentityRequest extends infer T
+  ? T extends { how: unknown }
+    ? Omit<T, 'how'> & { how: Unlock }
+    : T
+  : never;
+
 export function identityService(
   kv: KeyValue,
   keys: DeviceKeys,
   fetchBlob: (lookup: Uint8Array) => Promise<Uint8Array | null>,
+  fields: CodeFields = { take: async () => null, used: () => undefined, stop: () => undefined },
+  now: () => number = Date.now,
 ) {
   const prepared = new Map<string, Prepared>();
   const linking = new Map<string, Linking>();
@@ -66,7 +84,37 @@ export function identityService(
     return v;
   };
 
-  return async function run(r: IdentityRequest): Promise<unknown> {
+  /** A new code in the making, for the code page to show by its token (ADR 0054). */
+  const codeFor = (token: string) => prepared.get(token)?.recoveryCode ?? newCodes.get(token)?.recoveryCode ?? null;
+
+  return Object.assign(run, { codeFor });
+
+  async function run(asked: IdentityRequest): Promise<unknown> {
+    // Until consoles from before ADR 0054 are gone, the signer still takes
+    // a code the console typed, and gives a new code to a console that does
+    // not ask it hidden; after, never (ADR 0054).
+    const legacyOver = now() >= LEGACY_UNTIL;
+    if (legacyOver && 'how' in asked && 'recoveryCode' in asked.how)
+      throw new UnlockFailed('This page is out of date: reload it, then try again.');
+    // A code typed into this origin's field stands in for the code: the
+    // console named the field, never saw what is in it. It opens one action:
+    // dropped once that worked (or failed for any reason but the code), kept
+    // after a wrong code so the owner can fix a typo.
+    if (!('how' in asked && 'codeField' in asked.how)) return perform(asked as Resolved, legacyOver);
+    const field = asked.how.codeField;
+    const code = await fields.take(field);
+    if (!code) throw new UnlockFailed('Type your recovery code.');
+    try {
+      const out = await perform({ ...asked, how: { recoveryCode: code } } as Resolved, legacyOver);
+      fields.used(field);
+      return out;
+    } catch (error) {
+      if (!(error instanceof UnlockFailed)) fields.used(field);
+      throw error;
+    }
+  }
+
+  async function perform(r: Resolved, legacyOver: boolean): Promise<unknown> {
     switch (r.op) {
       case 'id-load': {
         const i = await loadIdentity(kv, keys);
@@ -77,7 +125,9 @@ export function identityService(
         const token = newToken();
         prepared.clear(); // one account in the making at a time
         prepared.set(token, p);
-        return { token, recoveryCode: p.recoveryCode, identity: pub(p.identity) };
+        // A console from before ADR 0054 shows the code itself; a newer one
+        // asks the signer's own frame for it, by the token.
+        return { token, ...(r.hide || legacyOver ? {} : { recoveryCode: p.recoveryCode }), identity: pub(p.identity) };
       }
       case 'id-prepare-passkey':
         return take(prepared, r.token).addPasskey(r.made);
@@ -88,8 +138,10 @@ export function identityService(
       }
       case 'id-unlock-methods':
         return unlockMethods(kv);
-      case 'id-renew':
-        return pub(await renewCertificate(kv, keys, r.how, r.name, r.now));
+      case 'id-renew': {
+        const { identity, registrations } = await renewAndRegister(kv, keys, r.how, r.name, r.now, r.machines ?? []);
+        return { ...pub(identity), registrations };
+      }
       case 'id-add-passkey':
         return addPasskey(kv, r.how, r.made);
       case 'id-remove-machine':
@@ -126,7 +178,7 @@ export function identityService(
         const token = newToken();
         newCodes.clear();
         newCodes.set(token, n);
-        return { token, recoveryCode: n.recoveryCode };
+        return { token, ...(r.hide || legacyOver ? {} : { recoveryCode: n.recoveryCode }) };
       }
       case 'id-new-code-save': {
         await take(newCodes, r.token).save();
@@ -176,7 +228,7 @@ export function identityService(
       default:
         throw new Error('refused');
     }
-  };
+  }
 }
 
 /** The root certified `device` for its own user: a grant or an identity, checked where it is kept. */
